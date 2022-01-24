@@ -33,10 +33,20 @@ pub fn Sequence(comptime A: type) type {
         data: []const u8,
 
         pub fn init(allocator: Allocator, identifier: []const u8, data: []const u8) !Self {
+            var sanitizedData = try dup(u8, allocator, data);
+
+            // convert lower case to upper case
+            for (sanitizedData) |*letter| {
+                if (letter.* >= 'a' and letter.* <= 'z') {
+                    letter.* -= ('a' - 'A');
+                }
+            }
+
+
             return Self {
                 .allocator = allocator,
                 .identifier = try dup(u8, allocator, identifier),
-                .data = try dup(u8, allocator, data),
+                .data = sanitizedData,
             };
         }
 
@@ -100,15 +110,8 @@ pub fn FastaReader(comptime A: type) type {
             self.sequences.deinit();
         }
 
-        pub fn readFile(self: *Self, path: []const u8) !void {
-            _ = self;
-            _ = path;
-
-            const dir: std.fs.Dir = std.fs.cwd();
-            const file: std.fs.File = try dir.openFile(path, .{ .read = true });
-            defer file.close();
-
-            var buffered_reader = std.io.bufferedReader(file.reader());
+        pub fn read(self: *Self, reader: anytype) !void {
+            var buffered_reader = std.io.bufferedReader(reader);
             var stream = buffered_reader.reader();
 
             var identifier = std.ArrayList(u8).init(self.allocator);
@@ -120,9 +123,11 @@ pub fn FastaReader(comptime A: type) type {
             while (try stream.readUntilDelimiterOrEofAlloc(self.allocator, '\n', 1024)) |line| {
                 defer self.allocator.free(line);
 
+                if (line.len == 0) continue;
+
                 switch (line[0]) {
                     '>' => {
-                        print("New {s}\n", .{line});
+                        // add old sequence
                         try self.addSequence(identifier.items, data.items);
 
                         // reset
@@ -133,17 +138,23 @@ pub fn FastaReader(comptime A: type) type {
                         try identifier.appendSlice(line[1..]);
                     },
                     ';' => {
-                        print("Comment {s}\n", .{line});
-                        // ignore
+                        // ignore comment
                     },
                     else => {
-                        print("Data {s} {}\n", .{line, line.len});
-                        // data
                         try data.appendSlice(line);
                     }
                 }
             }
-            // try self.addSequence(identifier.items, data.items);
+            // add remaining sequence
+            try self.addSequence(identifier.items, data.items);
+        }
+
+        pub fn readFile(self: *Self, path: []const u8) !void {
+            const dir: std.fs.Dir = std.fs.cwd();
+            const file: std.fs.File = try dir.openFile(path, .{ .read = true });
+            defer file.close();
+
+            try self.read(file.reader());
         }
 
         fn addSequence(self: *Self, identifier: []const u8, data: []const u8) !void {
@@ -167,65 +178,41 @@ pub fn main() !void {
 
     try reader.readFile("test.fasta");
 
-    // // var compl = try seq.complement();
-    // // defer compl.deinit();
+    for (reader.sequences.items) |sequence| {
+        print("{s}\n{s}\n\n", .{sequence.identifier, sequence.data});
+    }
+}
 
-    // // print("Compl %{s}\n", .{compl.data});
+test "reads fasta" {
+    const allocator = std.testing.allocator;
+    var reader = FastaReader(DNA).init(allocator);
+    defer reader.deinit();
 
-    // // var comp: Sequence(DNA) = seq.
+    const fasta = 
+        \\>Seq1
+        \\;comment2
+        \\;comment2
+        \\TGGCG
+        \\ATTGG
+        \\
+        \\>Seq2
+        \\TTTTT
+        \\CAGTC
+        \\>Seq3
+        \\actgc
+        ;
 
-    // // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // // defer _ = gpa.deinit();
-    // // const allocator = gpa.allocator();
+    var source = std.io.StreamSource{ .const_buffer = std.io.fixedBufferStream(fasta) };
+    try reader.read(source.reader());
 
-    // const dir: std.fs.Dir = std.fs.cwd();
-    // const file: std.fs.File = try dir.openFile("test.fasta", .{ .read = true });
-    // defer file.close();
+    try std.testing.expect(reader.sequences.items.len == 3);
 
-    // var buffered_reader = std.io.bufferedReader(file.reader());
-    // var stream = buffered_reader.reader();
+    try std.testing.expectEqualStrings("Seq1", reader.sequences.items[0].identifier);
+    try std.testing.expectEqualStrings("TGGCGATTGG", reader.sequences.items[0].data);
 
-    // var sequences = ArrayList(Sequence(DNA)).init(allocator);
-    // defer {
-    //     for (sequences.items) |*seq| seq.deinit();
-    //     sequences.deinit();
-    // }
+    try std.testing.expectEqualStrings("Seq2", reader.sequences.items[1].identifier);
+    try std.testing.expectEqualStrings("TTTTTCAGTC", reader.sequences.items[1].data);
 
-    // var identifier = ArrayList(u8).init(allocator);
-    // defer identifier.deinit();
-
-    // var data = ArrayList(u8).init(allocator);
-    // defer data.deinit();
-
-    // // var comment = ArrayList(u8).init(allocator);
-    // // defer comment.deinit();
-
-    // while (try stream.readUntilDelimiterOrEofAlloc(allocator, '\n', 1024)) |line| {
-    //     defer allocator.free(line);
-
-    //     switch (line[0]) {
-    //         '>' => {
-    //             // print("New {s}\n", .{line});
-    //             try addSequence(&sequences, allocator, identifier.items, data.items);
-    //             identifier.clearAndFree();
-    //             data.clearAndFree();
-    //             try identifier.appendSlice(line[1..]);
-    //         },
-    //         ';' => {
-    //             // print("Comment {s}\n", .{line});
-    //             // try comment.appendSlice(line[1..]);
-    //         },
-    //         else => {
-    //             // print("Data {s} {}\n", .{line, line.len});
-    //             try data.appendSlice(line);
-    //         }
-    //     }
-    // }
-
-    // // for (sequences.items) |seq| {
-    // //     print("Sequence {s}\n", .{seq.identifier});
-    // //     print("Data\n", .{});
-    // //     print("{s}\n", .{seq.data});
-    // //     print("\n", .{});
-    // // }
+    try std.testing.expectEqualStrings("Seq3", reader.sequences.items[2].identifier);
+    try std.testing.expectEqualStrings("ACTGC", reader.sequences.items[2].data);
 }
