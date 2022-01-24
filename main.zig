@@ -176,7 +176,18 @@ pub fn main() !void {
     var reader = FastaReader(DNA).init(allocator);
     defer reader.deinit();
 
-    try reader.readFile("test.fasta");
+    var arg_it = std.process.args();
+
+    // skip my own exe name
+    _ = arg_it.skip();
+
+    const file = (try arg_it.next(allocator) orelse {
+        std.debug.print("Expected first argument to be path to input file\n", .{});
+        return error.InvalidArgs;
+    });
+    defer allocator.free(file);
+
+    try reader.readFile(file);
 
     for (reader.sequences.items) |sequence| {
         print("{s}\n{s}\n\n", .{sequence.identifier, sequence.data});
