@@ -3,19 +3,8 @@ const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
-const DNA = struct {
-    pub fn complement(letter: u8) u8 {
-        _ = letter;
-        return 'Y';
-    }
-};
-
-const Protein = struct {
-    pub fn complement(letter: u8) u8 {
-        _ = letter;
-        return 'X';
-    }
-};
+const DNA = @import("alphabet/dna.zig").DNA;
+const Protein = @import("alphabet/protein.zig").Protein;
 
 pub fn dup(comptime T: type, allocator: Allocator, slice: []const T) ![]T {
     const result = try allocator.alloc(T, slice.len);
@@ -80,16 +69,6 @@ pub fn Sequence(comptime A: type) type {
         }
     };
 }
-
-// pub fn addSequence(list:*std.ArrayList(Sequence), allocator: Allocator, identifier:[]const u8, data:[]const u8) !void {
-//     if (data.len <= 0) return;
-
-//     try list.append(Sequence{ 
-//         .allocator = allocator,
-//         .identifier = identifier,
-//         .data = data,
-//     });
-// }
 
 pub fn FastaReader(comptime A: type) type {
     return struct {
