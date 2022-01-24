@@ -6,11 +6,7 @@ const Allocator = std.mem.Allocator;
 const DNA = @import("alphabet/dna.zig").DNA;
 const Protein = @import("alphabet/protein.zig").Protein;
 
-pub fn dup(comptime T: type, allocator: Allocator, slice: []const T) ![]T {
-    const result = try allocator.alloc(T, slice.len);
-    std.mem.copy(u8, result, slice);
-    return result;
-}
+const dup = @import("utils.zig").dup;
 
 pub fn Sequence(comptime A: type) type {
     return struct {
@@ -44,7 +40,7 @@ pub fn Sequence(comptime A: type) type {
             self.allocator.free(self.data);
         }
 
-        pub fn matches(self: *Self, other: Self) bool {
+        pub fn matches(self: *const Self, other: Self) bool {
             if (self.data.len != other.data.len) {
                 return false;
             }
@@ -54,7 +50,7 @@ pub fn Sequence(comptime A: type) type {
             } else true;
         }
 
-        pub fn complement(self: *Self) !Self {
+        pub fn complementAlloc(self: *const Self) !Self {
             var compl_data = try dup(u8, self.allocator, self.data);
 
             for (compl_data) |*letter| {
@@ -173,6 +169,11 @@ pub fn main() !void {
 
     for (reader.sequences.items) |sequence| {
         print("{s}\n{s}\n\n", .{sequence.identifier, sequence.data});
+
+        var compl = try sequence.complementAlloc();
+        defer compl.deinit();
+
+        print("Complement\n{s}\n{s}\n\n", .{compl.identifier, compl.data});
     }
 }
 
