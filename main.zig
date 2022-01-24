@@ -120,15 +120,16 @@ pub fn FastaReader(comptime A: type) type {
             var data = std.ArrayList(u8).init(self.allocator);
             defer data.deinit();
 
-            while (try stream.readUntilDelimiterOrEofAlloc(self.allocator, '\n', 1024)) |line| {
-                defer self.allocator.free(line);
+            var buffer = try self.allocator.alloc(u8, 1024);
+            defer self.allocator.free(buffer);
 
+            while (try stream.readUntilDelimiterOrEof(buffer, '\n')) |line| {
                 if (line.len == 0) continue;
 
                 switch (line[0]) {
                     '>' => {
                         // add old sequence
-                        try self.addSequence(identifier.items, data.items);
+                        try self.add(identifier.items, data.items);
 
                         // reset
                         identifier.clearRetainingCapacity();
@@ -146,7 +147,7 @@ pub fn FastaReader(comptime A: type) type {
                 }
             }
             // add remaining sequence
-            try self.addSequence(identifier.items, data.items);
+            try self.add(identifier.items, data.items);
         }
 
         pub fn readFile(self: *Self, path: []const u8) !void {
@@ -157,7 +158,7 @@ pub fn FastaReader(comptime A: type) type {
             try self.read(file.reader());
         }
 
-        fn addSequence(self: *Self, identifier: []const u8, data: []const u8) !void {
+        fn add(self: *Self, identifier: []const u8, data: []const u8) !void {
             if (data.len == 0) {
                 return;
             }
@@ -172,6 +173,8 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    // var reader = Reader(Fasta, DNA).init(allocator);
 
     var reader = FastaReader(DNA).init(allocator);
     defer reader.deinit();
@@ -203,8 +206,8 @@ test "reads fasta" {
         \\>Seq1
         \\;comment2
         \\;comment2
-        \\TGGCG
-        \\ATTGG
+        \\TGGCGAA
+        \\ATTGGG
         \\
         \\>Seq2
         \\TTTTT
@@ -219,7 +222,7 @@ test "reads fasta" {
     try std.testing.expect(reader.sequences.items.len == 3);
 
     try std.testing.expectEqualStrings("Seq1", reader.sequences.items[0].identifier);
-    try std.testing.expectEqualStrings("TGGCGATTGG", reader.sequences.items[0].data);
+    try std.testing.expectEqualStrings("TGGCGAAATTGGG", reader.sequences.items[0].data);
 
     try std.testing.expectEqualStrings("Seq2", reader.sequences.items[1].identifier);
     try std.testing.expectEqualStrings("TTTTTCAGTC", reader.sequences.items[1].data);
