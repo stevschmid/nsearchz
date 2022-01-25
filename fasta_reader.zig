@@ -80,7 +80,7 @@ pub fn FastaReader(comptime A: type) type {
 }
 
 test "reads fasta" {
-    const DNA = @import("alphabet/dna.zig").DNA;
+    const DNA = @import("bio/alphabet/dna.zig").DNA;
 
     const allocator = std.testing.allocator;
     var reader = FastaReader(DNA).init(allocator);

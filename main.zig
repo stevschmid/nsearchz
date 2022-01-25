@@ -8,8 +8,8 @@ const utils = @import("utils.zig");
 const Sequence = @import("sequence.zig").Sequence;
 const FastaReader = @import("fasta_reader.zig").FastaReader;
 
-const alphabet = @import("alphabet.zig");
-const kmers = @import("kmers.zig");
+const bio = @import("bio/bio.zig");
+const alphabet = bio.alphabet;
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -50,8 +50,8 @@ pub fn main() !void {
 
     const sequences = reader.sequences;
 
-    for (sequences.items) |sequence, sequence_idx| {
-        var kmer_it = kmers.Iterator(alphabet.DNA).init(sequence.data);
+    for (sequences.items) |sequence, seq_idx| {
+        var kmer_it = bio.kmer.Iterator(alphabet.DNA).init(sequence.data);
         while (kmer_it.next()) |kmer| {
             total_entries += 1;
 
@@ -60,10 +60,10 @@ pub fn main() !void {
                 continue;
 
             // already counted for this sequence?
-            if (seq_by_kmer[kmer] == sequence_idx)
+            if (seq_by_kmer[kmer] == seq_idx)
                 continue;
 
-            seq_by_kmer[kmer] = @intCast(isize, sequence_idx);
+            seq_by_kmer[kmer] = @intCast(isize, seq_idx);
             count_by_kmer[kmer] += 1;
             total_unique_entries += 1;
         }
@@ -78,34 +78,50 @@ pub fn main() !void {
         print("Offset {}\n", .{seq_offset.*});
     }
 
-    // // Reset tracking for unique kmer within a sequence
-    // std.mem.set(isize, seq_by_kmer, -1);
+    // Reset tracking for unique kmer within a sequence
+    std.mem.set(isize, seq_by_kmer, -1);
 
-    // // Populate DB
-    // var kmer_offset_by_seq = try allocator.alloc(usize, sequences.items.len);
-    // defer allocator.free(kmer_offset_by_seq);
+    // Populate DB
+    var kmer_offset_by_seq = try allocator.alloc(usize, sequences.items.len);
+    defer allocator.free(kmer_offset_by_seq);
 
-    // var kmer_count: usize = 0;
-    // for (sequences.items) |sequence, sequence_idx| {
-    //     kmer_offset_by_seq[sequence_idx] = kmer_count;
+    var kmers = try allocator.alloc(alphabet.AlphabetInfo(alphabet.DNA).KmerType, total_entries);
+    defer allocator.free(kmers);
 
-    //     var kmer_gen = KmerGenerator(alphabet.DNA).init(sequence.data);
-    //     while (kmer_gen.advance()) {
-    //         const kmer = kmer_gen.kmer();
+    var seq_indices = try allocator.alloc(usize, total_unique_entries);
+    defer allocator.free(seq_indices);
 
-    //         // ambiguous?
-    //         if (kmer == null)
-    //             continue;
+    var seq_count_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    std.mem.set(usize, seq_count_by_kmer, 0);
+    defer allocator.free(seq_count_by_kmer);
 
-    //         // already counted for this sequence?
-    //         if (seq_by_kmer[kmer.?] == sequence_idx)
-    //             continue;
-    //     }
-    // }
+    var kmer_count: usize = 0;
+    for (sequences.items) |sequence, seq_idx| {
+        kmer_offset_by_seq[seq_idx] = kmer_count;
 
-    for (count_by_kmer) |count, kmer| {
-        if (count > 0) {
-            print("Kmer {b:0>16}: {}\n", .{ kmer, count });
+        var kmer_it = bio.kmer.Iterator(alphabet.DNA).init(sequence.data);
+        while (kmer_it.next()) |kmer| {
+            kmers[kmer_count] = kmer;
+            kmer_count += 1;
+
+            // ambiguous?
+            if (kmer == alphabet.AlphabetInfo(alphabet.DNA).AmbiguousKmer)
+                continue;
+
+            // already counted for this sequence?
+            if (seq_by_kmer[kmer] == seq_idx)
+                continue;
+
+            seq_by_kmer[kmer] = @intCast(isize, seq_idx);
+
+            seq_indices[ seq_offset_by_kmer[ kmer ] + seq_count_by_kmer[ kmer ] ] = seq_idx;
+            seq_count_by_kmer[ kmer ] += 1;
         }
     }
+
+    // for (count_by_kmer) |count, kmer| {
+    //     if (count > 0) {
+    //         print("Kmer {b:0>16}: {}\n", .{ kmer, count });
+    //     }
+    // }
 }
