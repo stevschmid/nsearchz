@@ -10,64 +10,6 @@ const FastaReader = @import("fasta_reader.zig").FastaReader;
 
 const alphabet = @import("alphabet.zig");
 
-pub fn KmerGenerator(comptime A: type) type {
-    return struct {
-        const Self = @This();
-
-        const AlphabetInfo = alphabet.AlphabetInfo(A);
-        const Mask: AlphabetInfo.KmerType = ~@intCast(AlphabetInfo.KmerType, 0);
-
-        pos: usize,
-        letters: []const u8,
-        val: AlphabetInfo.KmerType = 0,
-        ambiguity_count: usize = 0,
-
-        fn init(letters: []const u8) Self {
-            return Self{
-                .pos = 0,
-                .letters = letters,
-            };
-        }
-
-        pub fn advance(self: *Self) bool {
-            while (self.pos + 1 < AlphabetInfo.NumLettersPerKmer and self.consumeNext()) {
-                // advance up to pos - 1 for the initial kmer
-            }
-
-            return self.consumeNext();
-        }
-
-        pub fn kmer(self: *Self) ?AlphabetInfo.KmerType {
-            return if (self.ambiguity_count > 0) null else self.val;
-        }
-
-        fn consumeNext(self: *Self) bool {
-            if (self.pos >= self.letters.len) {
-                return false;
-            }
-
-            // evaluate current letter
-            const letterBits = A.mapToBits(self.letters[self.pos]);
-            if (letterBits == null) {
-                // the next X kmers are considered to be ambiguous
-                self.ambiguity_count = AlphabetInfo.NumLettersPerKmer + 1;
-            } else {
-                // map current letter
-                self.val = ((self.val << @bitSizeOf(AlphabetInfo.LetterToBitMapType)) | letterBits.?) & AlphabetInfo.KmerMask;
-            }
-
-            // advance
-            self.pos += 1;
-
-            // in ambiguous region?
-            if (self.ambiguity_count > 0) {
-                self.ambiguity_count -= 1;
-            }
-
-            return true;
-        }
-    };
-}
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -106,7 +48,9 @@ pub fn main() !void {
     var total_entries: usize = 0;
     var total_unique_entries: usize = 0;
 
-    for (reader.sequences.items) |sequence, sequence_idx| {
+    const sequences = reader.sequences;
+
+    for (sequences.items) |sequence, sequence_idx| {
         var kmer_gen = KmerGenerator(alphabet.DNA).init(sequence.data);
         while (kmer_gen.advance()) {
             total_entries += 1;
@@ -127,16 +71,43 @@ pub fn main() !void {
         }
     }
 
-    var index_offsets = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
-    defer allocator.free(index_offsets);
-    for (index_offsets) |*index_offset, kmer| {
-        index_offset.* = if (kmer > 0) index_offsets[kmer - 1] + count_by_kmer[kmer - 1] else 0;
-        print("Offset {}\n", .{index_offset.*});
+    // Calculate indices
+    var seq_offset_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    defer allocator.free(seq_offset_by_kmer);
+
+    for (seq_offset_by_kmer) |*seq_offset, kmer| {
+        seq_offset.* = if (kmer > 0) seq_offset_by_kmer[kmer - 1] + count_by_kmer[kmer - 1] else 0;
+        print("Offset {}\n", .{seq_offset.*});
     }
 
-    for (count_by_kmer) |count, kmer| {
-        if (count > 0) {
-            print("Kmer {b:0>16}: {}\n", .{ kmer, count });
-        }
-    }
+    // // Reset tracking for unique kmer within a sequence
+    // std.mem.set(isize, seq_by_kmer, -1);
+
+    // // Populate DB
+    // var kmer_offset_by_seq = try allocator.alloc(usize, sequences.items.len);
+    // defer allocator.free(kmer_offset_by_seq);
+
+    // var kmer_count: usize = 0;
+    // for (sequences.items) |sequence, sequence_idx| {
+    //     kmer_offset_by_seq[sequence_idx] = kmer_count;
+
+    //     var kmer_gen = KmerGenerator(alphabet.DNA).init(sequence.data);
+    //     while (kmer_gen.advance()) {
+    //         const kmer = kmer_gen.kmer();
+
+    //         // ambiguous?
+    //         if (kmer == null)
+    //             continue;
+
+    //         // already counted for this sequence?
+    //         if (seq_by_kmer[kmer.?] == sequence_idx)
+    //             continue;
+    //     }
+    // }
+
+    // for (count_by_kmer) |count, kmer| {
+    //     if (count > 0) {
+    //         print("Kmer {b:0>16}: {}\n", .{ kmer, count });
+    //     }
+    // }
 }

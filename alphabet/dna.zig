@@ -102,7 +102,7 @@ test "bit mapping" {
 
     try std.testing.expectEqual(DNA.mapToBits('G'), 0b11);
 
-    try std.testing.expectEqual(DNA.mapToBits('N'), 0b11);
+    try std.testing.expectEqual(DNA.mapToBits('N'), null);
 }
 
 test "scoring" {
