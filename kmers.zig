@@ -1,7 +1,7 @@
 const std = @import("std");
 const alphabet = @import("alphabet.zig");
 
-pub fn KmerIterator(comptime A: type) type {
+pub fn Iterator(comptime A: type) type {
     return struct {
         const Self = @This();
 
@@ -12,7 +12,7 @@ pub fn KmerIterator(comptime A: type) type {
         val: AlphabetInfo.KmerType = 0,
         ambiguity_count: usize = 0,
 
-        fn init(letters: []const u8) Self {
+        pub fn init(letters: []const u8) Self {
             return Self{
                 .pos = 0,
                 .letters = letters,
@@ -59,7 +59,7 @@ pub fn KmerIterator(comptime A: type) type {
 }
 
 test "basic test" {
-    var it = KmerIterator(alphabet.DNA).init("AAAATTTTCCCCGGGG");
+    var it = Iterator(alphabet.DNA).init("AAAATTTTCCCCGGGG");
     try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_00_00_00_10_10_10_10), it.next().?);
     try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_00_00_10_10_10_10_01), it.next().?);
     try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_00_10_10_10_10_01_01), it.next().?);
@@ -75,7 +75,7 @@ test "basic test" {
 }
 
 test "ambiguous nucleotides" {
-    var it = KmerIterator(alphabet.DNA).init("AAAATTTTNTNCCCCGGGG");
+    var it = Iterator(alphabet.DNA).init("AAAATTTTNTNCCCCGGGG");
     // str len = 19, frame = 8, (19-8)+1 = 12 total frames
     try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b0_00_00_00_00_10_10_10_10), it.next().?);
     var i: usize = 0;

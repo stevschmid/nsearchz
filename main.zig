@@ -9,7 +9,7 @@ const Sequence = @import("sequence.zig").Sequence;
 const FastaReader = @import("fasta_reader.zig").FastaReader;
 
 const alphabet = @import("alphabet.zig");
-
+const kmers = @import("kmers.zig");
 
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -51,22 +51,20 @@ pub fn main() !void {
     const sequences = reader.sequences;
 
     for (sequences.items) |sequence, sequence_idx| {
-        var kmer_gen = KmerGenerator(alphabet.DNA).init(sequence.data);
-        while (kmer_gen.advance()) {
+        var kmer_it = kmers.Iterator(alphabet.DNA).init(sequence.data);
+        while (kmer_it.next()) |kmer| {
             total_entries += 1;
 
-            const kmer = kmer_gen.kmer();
-
             // ambiguous?
-            if (kmer == null)
+            if (kmer == alphabet.AlphabetInfo(alphabet.DNA).AmbiguousKmer)
                 continue;
 
             // already counted for this sequence?
-            if (seq_by_kmer[kmer.?] == sequence_idx)
+            if (seq_by_kmer[kmer] == sequence_idx)
                 continue;
 
-            seq_by_kmer[kmer.?] = @intCast(isize, sequence_idx);
-            count_by_kmer[kmer.?] += 1;
+            seq_by_kmer[kmer] = @intCast(isize, sequence_idx);
+            count_by_kmer[kmer] += 1;
             total_unique_entries += 1;
         }
     }
@@ -105,9 +103,9 @@ pub fn main() !void {
     //     }
     // }
 
-    // for (count_by_kmer) |count, kmer| {
-    //     if (count > 0) {
-    //         print("Kmer {b:0>16}: {}\n", .{ kmer, count });
-    //     }
-    // }
+    for (count_by_kmer) |count, kmer| {
+        if (count > 0) {
+            print("Kmer {b:0>16}: {}\n", .{ kmer, count });
+        }
+    }
 }
