@@ -60,7 +60,7 @@ pub fn KmerGenerator(comptime A: type) type {
             self.pos += 1;
 
             // in ambiguous region?
-            if (self.ambiguity_count > 0)  {
+            if (self.ambiguity_count > 0) {
                 self.ambiguity_count -= 1;
             }
 
@@ -92,16 +92,16 @@ pub fn main() !void {
     try reader.readFile(file);
 
     // build database PogU
-    var counts = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
-    std.mem.set(usize, counts, 0);
-    defer allocator.free(counts);
 
-    // indices, for first loop simply to keep track of the unique kmer of a given sequence
-    var unique_tracking = try allocator.alloc(isize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
-    std.mem.set(isize, unique_tracking, -1);
-    defer allocator.free(unique_tracking);
+    // counts by kmer
+    var count_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    std.mem.set(usize, count_by_kmer, 0);
+    defer allocator.free(count_by_kmer);
 
-    print("Length {}\n", .{counts.len});
+    // to keep track of the unique kmer of a given sequence
+    var seq_by_kmer = try allocator.alloc(isize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    std.mem.set(isize, seq_by_kmer, -1);
+    defer allocator.free(seq_by_kmer);
 
     var total_entries: usize = 0;
     var total_unique_entries: usize = 0;
@@ -118,25 +118,25 @@ pub fn main() !void {
                 continue;
 
             // already counted for this sequence?
-            if (unique_tracking[kmer.?] == sequence_idx) 
+            if (seq_by_kmer[kmer.?] == sequence_idx)
                 continue;
 
-            unique_tracking[kmer.?] = @intCast(isize, sequence_idx);
-            counts[kmer.?] += 1;
+            seq_by_kmer[kmer.?] = @intCast(isize, sequence_idx);
+            count_by_kmer[kmer.?] += 1;
             total_unique_entries += 1;
         }
     }
 
     var index_offsets = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
     defer allocator.free(index_offsets);
-    for (index_offsets) |*index_offset, idx| {
-        index_offset.* = if (idx > 0) index_offsets[idx - 1] + counts[ idx - 1 ] else 0;
+    for (index_offsets) |*index_offset, kmer| {
+        index_offset.* = if (kmer > 0) index_offsets[kmer - 1] + count_by_kmer[kmer - 1] else 0;
         print("Offset {}\n", .{index_offset.*});
     }
 
-    for (counts) |count, kmer| {
+    for (count_by_kmer) |count, kmer| {
         if (count > 0) {
-            print("Kmer {b:0>16}: {}\n", .{kmer, count});
+            print("Kmer {b:0>16}: {}\n", .{ kmer, count });
         }
     }
 }
