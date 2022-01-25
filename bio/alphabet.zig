@@ -14,7 +14,7 @@ pub fn AlphabetInfo(comptime A: type) type {
         } });
         pub const MaxKmers = 1 << NumBitsPerKmer;
         pub const AmbiguousKmer = MaxKmers - 1;
-        pub const KmerMask = (1 << (NumBitsPerKmer - 1)) - 1;
+        pub const KmerMask = AmbiguousKmer >> 1; // remove ambiguous bit
     };
 }
 
