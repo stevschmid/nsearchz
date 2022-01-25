@@ -5,3 +5,4 @@ pub fn dup(comptime T: type, allocator: std.mem.Allocator, slice: []const T) ![]
     std.mem.copy(u8, result, slice);
     return result;
 }
+

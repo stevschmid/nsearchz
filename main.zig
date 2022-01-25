@@ -3,33 +3,23 @@ const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
-const DNA = @import("alphabet/dna.zig").DNA;
-const Protein = @import("alphabet/protein.zig").Protein;
-
-const dup = @import("utils.zig").dup;
+const utils = @import("utils.zig");
 
 const Sequence = @import("sequence.zig").Sequence;
 const FastaReader = @import("fasta_reader.zig").FastaReader;
 
-pub fn KmerGenerator(comptime A: type, comptime NumLettersPerKmer: comptime_int) type {
+const alphabet = @import("alphabet.zig");
+
+pub fn KmerGenerator(comptime A: type) type {
     return struct {
         const Self = @This();
 
-        const LetterToBitMapType = @typeInfo(@typeInfo(@TypeOf(DNA.mapToBits)).Fn.return_type.?).Optional.child;
-        const NumBitsPerLetter = @bitSizeOf(LetterToBitMapType);
-
-        const NumBitsPerKmer = NumLettersPerKmer * NumBitsPerLetter;
-
-        pub const KmerType = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = NumBitsPerKmer,
-        } });
-
-        const Mask: KmerType = ~@intCast(KmerType, 0);
+        const AlphabetInfo = alphabet.AlphabetInfo(A);
+        const Mask: AlphabetInfo.KmerType = ~@intCast(AlphabetInfo.KmerType, 0);
 
         pos: usize,
         letters: []const u8,
-        val: KmerType = 0,
+        val: AlphabetInfo.KmerType = 0,
         ambiguity_count: usize = 0,
 
         fn init(letters: []const u8) Self {
@@ -40,14 +30,14 @@ pub fn KmerGenerator(comptime A: type, comptime NumLettersPerKmer: comptime_int)
         }
 
         pub fn advance(self: *Self) bool {
-            while (self.pos + 1 < NumLettersPerKmer and self.consumeNext()) {
+            while (self.pos + 1 < AlphabetInfo.NumLettersPerKmer and self.consumeNext()) {
                 // advance up to pos - 1 for the initial kmer
             }
 
             return self.consumeNext();
         }
 
-        pub fn kmer(self: *Self) ?KmerType {
+        pub fn kmer(self: *Self) ?AlphabetInfo.KmerType {
             return if (self.ambiguity_count > 0) null else self.val;
         }
 
@@ -59,17 +49,17 @@ pub fn KmerGenerator(comptime A: type, comptime NumLettersPerKmer: comptime_int)
             // evaluate current letter
             const letterBits = A.mapToBits(self.letters[self.pos]);
             if (letterBits == null) {
-                // the next X kmers are considered to be ambigious
-                self.ambiguity_count = NumLettersPerKmer + 1;
+                // the next X kmers are considered to be ambiguous
+                self.ambiguity_count = AlphabetInfo.NumLettersPerKmer + 1;
             } else {
                 // map current letter
-                self.val = ((self.val << @bitSizeOf(LetterToBitMapType)) | letterBits.?) & Mask;
+                self.val = ((self.val << @bitSizeOf(AlphabetInfo.LetterToBitMapType)) | letterBits.?) & AlphabetInfo.KmerMask;
             }
 
             // advance
             self.pos += 1;
 
-            // in ambigious region?
+            // in ambiguous region?
             if (self.ambiguity_count > 0)  {
                 self.ambiguity_count -= 1;
             }
@@ -79,7 +69,6 @@ pub fn KmerGenerator(comptime A: type, comptime NumLettersPerKmer: comptime_int)
     };
 }
 
-
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -87,7 +76,7 @@ pub fn main() !void {
 
     // var reader = Reader(Fasta, DNA).init(allocator);
 
-    var reader = FastaReader(DNA).init(allocator);
+    var reader = FastaReader(alphabet.DNA).init(allocator);
     defer reader.deinit();
 
     var arg_it = std.process.args();
@@ -100,17 +89,54 @@ pub fn main() !void {
         return error.InvalidArgs;
     });
     defer allocator.free(file);
-
     try reader.readFile(file);
 
-    for (reader.sequences.items) |sequence| {
-        var kmer_gen = KmerGenerator(DNA, 8).init(sequence.data);
+    // build database PogU
+    var counts = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    std.mem.set(usize, counts, 0);
+    defer allocator.free(counts);
+
+    // indices, for first loop simply to keep track of the unique kmer of a given sequence
+    var unique_tracking = try allocator.alloc(isize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    std.mem.set(isize, unique_tracking, -1);
+    defer allocator.free(unique_tracking);
+
+    print("Length {}\n", .{counts.len});
+
+    var total_entries: usize = 0;
+    var total_unique_entries: usize = 0;
+
+    for (reader.sequences.items) |sequence, sequence_idx| {
+        var kmer_gen = KmerGenerator(alphabet.DNA).init(sequence.data);
         while (kmer_gen.advance()) {
-            if (kmer_gen.kmer() != null) {
-                print("{b:0>16}\n", .{kmer_gen.kmer()});
-            } else  {
-                print("Kmer is ambigious\n", .{});
-            }
+            total_entries += 1;
+
+            const kmer = kmer_gen.kmer();
+
+            // ambiguous?
+            if (kmer == null)
+                continue;
+
+            // already counted for this sequence?
+            if (unique_tracking[kmer.?] == sequence_idx) 
+                continue;
+
+            unique_tracking[kmer.?] = @intCast(isize, sequence_idx);
+            counts[kmer.?] += 1;
+            total_unique_entries += 1;
+        }
+    }
+
+    var index_offsets = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    defer allocator.free(index_offsets);
+    for (index_offsets) |*index_offset, idx| {
+        index_offset.* = if (idx > 0) index_offsets[idx - 1] + counts[ idx - 1 ] else 0;
+        print("Offset {}\n", .{index_offset.*});
+    }
+
+    for (counts) |count, kmer| {
+        if (count > 0) {
+            print("Kmer {b:0>16}: {}\n", .{kmer, count});
         }
     }
 }
