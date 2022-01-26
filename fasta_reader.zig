@@ -30,10 +30,9 @@ pub fn FastaReader(comptime A: type) type {
             var data = std.ArrayList(u8).init(self.allocator);
             defer data.deinit();
 
-            var buffer = try self.allocator.alloc(u8, 1024);
-            defer self.allocator.free(buffer);
+            var buffer: [4096]u8 = undefined;
 
-            while (try stream.readUntilDelimiterOrEof(buffer, '\n')) |line| {
+            while (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
                 if (line.len == 0) continue;
 
                 switch (line[0]) {

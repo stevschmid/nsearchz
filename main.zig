@@ -16,6 +16,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    var bench_start = std.time.milliTimestamp();
     var reader = FastaReader(alphabet.DNA).init(allocator);
     defer reader.deinit();
 
@@ -30,6 +31,7 @@ pub fn main() !void {
     });
     defer allocator.free(file);
     try reader.readFile(file);
+    print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     // counts by kmer
     var count_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
@@ -46,6 +48,7 @@ pub fn main() !void {
 
     const sequences = reader.sequences;
 
+    bench_start = std.time.milliTimestamp();
     for (sequences.items) |sequence, seq_idx| {
         var kmer_it = bio.kmer.Iterator(alphabet.DNA).init(sequence.data);
         while (kmer_it.next()) |kmer| {
@@ -119,7 +122,10 @@ pub fn main() !void {
         kmer_count_by_seq[seq_idx] = kmer_count - kmer_offset_by_seq[seq_idx];
     }
 
-    // print("{b:0>17}\n", .{kmers[kmer_offset_by_seq[1]]});
+    print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
+
+    print("Total Entries {} Unique {}\n", .{total_entries, total_unique_entries});
+    print("{b:0>17}\n", .{kmers[kmer_offset_by_seq[1]]});
 
     // for (count_by_kmer) |count, kmer| {
     //     if (count > 0) {

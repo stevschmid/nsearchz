@@ -20,7 +20,6 @@ pub fn Sequence(comptime A: type) type {
                 }
             }
 
-
             return Self {
                 .allocator = allocator,
                 .identifier = try utils.dup(u8, allocator, identifier),

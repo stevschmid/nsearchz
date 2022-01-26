@@ -12,9 +12,9 @@ pub fn AlphabetInfo(comptime A: type) type {
             .signedness = .unsigned,
             .bits = NumBitsPerKmer, // save ambiguous kmer
         } });
-        pub const MaxKmers = 1 << NumBitsPerKmer;
-        pub const AmbiguousKmer = MaxKmers - 1;
-        pub const KmerMask = AmbiguousKmer >> 1; // remove ambiguous bit
+        pub const MaxKmers = (1 << (NumBitsPerKmer - 1)) + 1;
+        pub const AmbiguousKmer = (1 << NumBitsPerKmer) - 1;
+        pub const KmerMask = AmbiguousKmer >> 1;
     };
 }
 
@@ -26,7 +26,7 @@ test "check" {
     try std.testing.expectEqual(17, a.NumBitsPerKmer); //2*8+1
     try std.testing.expectEqual(u2, a.LetterToBitMapType);
     try std.testing.expectEqual(u17, a.KmerType);
-    try std.testing.expectEqual(131_072, a.MaxKmers);
+    try std.testing.expectEqual(65537, a.MaxKmers);
     try std.testing.expectEqual(0b1_11_11_11_11_11_11_11_11, a.AmbiguousKmer); // ambiguous flag active
     try std.testing.expectEqual(0b0_11_11_11_11_11_11_11_11, a.KmerMask);
 }
