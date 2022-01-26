@@ -2,8 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const DNA = struct {
-    pub const NumLettersPerKmer = 8;
-
     pub fn complement(letter: u8) u8 {
         return switch (letter) {
             'A' => 'T',

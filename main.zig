@@ -11,13 +11,16 @@ const FastaReader = @import("fasta_reader.zig").FastaReader;
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
 
+const alphabetChosen = alphabet.DNA;
+const kmerInfo = bio.kmer.KmerInfo(alphabetChosen, 8);
+
 pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
     var bench_start = std.time.milliTimestamp();
-    var reader = FastaReader(alphabet.DNA).init(allocator);
+    var reader = FastaReader(alphabetChosen).init(allocator);
     defer reader.deinit();
 
     var arg_it = std.process.args();
@@ -34,12 +37,12 @@ pub fn main() !void {
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     // counts by kmer
-    var count_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    var count_by_kmer = try allocator.alloc(usize, kmerInfo.MaxKmers);
     std.mem.set(usize, count_by_kmer, 0);
     defer allocator.free(count_by_kmer);
 
     // to keep track of the unique kmer of a given sequence
-    var seq_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    var seq_by_kmer = try allocator.alloc(usize, kmerInfo.MaxKmers);
     std.mem.set(usize, seq_by_kmer, std.math.maxInt(usize)); // set to -1 equivalent
     defer allocator.free(seq_by_kmer);
 
@@ -50,12 +53,12 @@ pub fn main() !void {
 
     bench_start = std.time.milliTimestamp();
     for (sequences.items) |sequence, seq_idx| {
-        var kmer_it = bio.kmer.Iterator(alphabet.DNA).init(sequence.data);
+        var kmer_it = bio.kmer.Iterator(kmerInfo).init(sequence.data);
         while (kmer_it.next()) |kmer| {
             total_entries += 1;
 
             // ambiguous?
-            if (kmer == alphabet.AlphabetInfo(alphabet.DNA).AmbiguousKmer)
+            if (kmer == kmerInfo.AmbiguousKmer)
                 continue;
 
             // already counted for this sequence?
@@ -69,7 +72,7 @@ pub fn main() !void {
     }
 
     // Calculate indices
-    var seq_offset_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    var seq_offset_by_kmer = try allocator.alloc(usize, kmerInfo.MaxKmers);
     defer allocator.free(seq_offset_by_kmer);
 
     for (seq_offset_by_kmer) |*seq_offset, kmer| {
@@ -86,13 +89,13 @@ pub fn main() !void {
     var kmer_count_by_seq = try allocator.alloc(usize, sequences.items.len);
     defer allocator.free(kmer_count_by_seq);
 
-    var kmers = try allocator.alloc(alphabet.AlphabetInfo(alphabet.DNA).KmerType, total_entries);
+    var kmers = try allocator.alloc(kmerInfo.KmerType, total_entries);
     defer allocator.free(kmers);
 
     var seq_indices = try allocator.alloc(usize, total_unique_entries);
     defer allocator.free(seq_indices);
 
-    var seq_count_by_kmer = try allocator.alloc(usize, alphabet.AlphabetInfo(alphabet.DNA).MaxKmers);
+    var seq_count_by_kmer = try allocator.alloc(usize, kmerInfo.MaxKmers);
     std.mem.set(usize, seq_count_by_kmer, 0);
     defer allocator.free(seq_count_by_kmer);
 
@@ -100,13 +103,13 @@ pub fn main() !void {
     for (sequences.items) |sequence, seq_idx| {
         kmer_offset_by_seq[seq_idx] = kmer_count;
 
-        var kmer_it = bio.kmer.Iterator(alphabet.DNA).init(sequence.data);
+        var kmer_it = bio.kmer.Iterator(kmerInfo).init(sequence.data);
         while (kmer_it.next()) |kmer| {
             kmers[kmer_count] = kmer;
             kmer_count += 1;
 
             // ambiguous?
-            if (kmer == alphabet.AlphabetInfo(alphabet.DNA).AmbiguousKmer)
+            if (kmer == kmerInfo.AmbiguousKmer)
                 continue;
 
             // already counted for this sequence?

@@ -1,15 +1,31 @@
 const std = @import("std");
 const alphabet = @import("alphabet.zig");
 
-pub fn Iterator(comptime A: type) type {
+pub fn KmerInfo(comptime A: type, comptime NumLettersPerKmer: comptime_int) type {
+    return struct{
+        pub const NumLettersPerKmer = NumLettersPerKmer;
+        pub const Alphabet = A;
+        pub const LetterToBitMapType = @typeInfo(@typeInfo(@TypeOf(A.mapToBits)).Fn.return_type.?).Optional.child; // ?u2 -> u2
+        pub const NumBitsPerLetter = @bitSizeOf(LetterToBitMapType);
+        pub const NumBitsPerKmer = (NumLettersPerKmer * NumBitsPerLetter) + 1; // +1 for ambiguous kmer
+        pub const KmerType = @Type(.{ .Int = .{
+            .signedness = .unsigned,
+            .bits = NumBitsPerKmer, // save ambiguous kmer
+        } });
+        pub const MaxKmers = (1 << (NumBitsPerKmer - 1)) + 1;
+        pub const AmbiguousKmer = (1 << NumBitsPerKmer) - 1;
+        pub const KmerMask = AmbiguousKmer >> 1;
+    };
+}
+
+pub fn Iterator(comptime kmerInfo: type) type {
     return struct {
         const Self = @This();
-
-        const AlphabetInfo = alphabet.AlphabetInfo(A);
+        const A = kmerInfo.Alphabet;
 
         pos: usize,
         letters: []const u8,
-        val: AlphabetInfo.KmerType = 0,
+        val: kmerInfo.KmerType = 0,
         ambiguity_count: usize = 0,
 
         pub fn init(letters: []const u8) Self {
@@ -19,15 +35,15 @@ pub fn Iterator(comptime A: type) type {
             };
         }
 
-        pub fn next(self: *Self) ?AlphabetInfo.KmerType {
-            while (self.pos + 1 < AlphabetInfo.NumLettersPerKmer and self.consumeNext()) {
+        pub fn next(self: *Self) ?kmerInfo.KmerType {
+            while (self.pos + 1 < kmerInfo.NumLettersPerKmer and self.consumeNext()) {
                 // advance up to pos - 1 for the initial kmer
             }
 
             if (!self.consumeNext())
                 return null;
 
-            return if (self.ambiguity_count > 0) AlphabetInfo.AmbiguousKmer else self.val;
+            return if (self.ambiguity_count > 0) kmerInfo.AmbiguousKmer else self.val;
         }
 
         fn consumeNext(self: *Self) bool {
@@ -39,10 +55,10 @@ pub fn Iterator(comptime A: type) type {
             const letterBits = A.mapToBits(self.letters[self.pos]);
             if (letterBits == null) {
                 // the next X kmers are considered to be ambiguous
-                self.ambiguity_count = AlphabetInfo.NumLettersPerKmer + 1;
+                self.ambiguity_count = kmerInfo.NumLettersPerKmer + 1;
             } else {
                 // map current letter
-                self.val = ((self.val << @bitSizeOf(AlphabetInfo.LetterToBitMapType)) | letterBits.?) & AlphabetInfo.KmerMask;
+                self.val = ((self.val << @bitSizeOf(kmerInfo.LetterToBitMapType)) | letterBits.?) & kmerInfo.KmerMask;
             }
 
             // advance
@@ -58,30 +74,49 @@ pub fn Iterator(comptime A: type) type {
     };
 }
 
+test "info" {
+    const a = KmerInfo(alphabet.DNA, 8);
+
+    try std.testing.expectEqual(8, a.NumLettersPerKmer);
+    try std.testing.expectEqual(17, a.NumBitsPerKmer); //2*8+1
+    try std.testing.expectEqual(u2, a.LetterToBitMapType);
+    try std.testing.expectEqual(u17, a.KmerType);
+    try std.testing.expectEqual(65537, a.MaxKmers);
+    try std.testing.expectEqual(0b1_11_11_11_11_11_11_11_11, a.AmbiguousKmer); // ambiguous flag active
+    try std.testing.expectEqual(0b0_11_11_11_11_11_11_11_11, a.KmerMask);
+}
+
 test "basic test" {
-    var it = Iterator(alphabet.DNA).init("AAAATTTTCCCCGGGG");
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_00_00_00_10_10_10_10), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_00_00_10_10_10_10_01), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_00_10_10_10_10_01_01), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b00_10_10_10_10_01_01_01), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b10_10_10_10_01_01_01_01), it.next().?);
+    const kmerInfo = KmerInfo(alphabet.DNA, 3);
 
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b10_10_10_01_01_01_01_11), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b10_10_01_01_01_01_11_11), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b10_01_01_01_01_11_11_11), it.next().?);
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b01_01_01_01_11_11_11_11), it.next().?);
-
+    var it = Iterator(kmerInfo).init("ATCGGG");
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b00_10_01), it.next().?);
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b10_01_11), it.next().?);
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b01_11_11), it.next().?);
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b11_11_11), it.next().?);
     try std.testing.expect(it.next() == null);
 }
 
 test "ambiguous nucleotides" {
-    var it = Iterator(alphabet.DNA).init("AAAATTTTNTNCCCCGGGG");
-    // str len = 19, frame = 8, (19-8)+1 = 12 total frames
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b0_00_00_00_00_10_10_10_10), it.next().?);
-    var i: usize = 0;
-    while (i < 10) : (i += 1) {
-        try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b1_11_11_11_11_11_11_11_11), it.next().?); // ambiguous kmer
-    }
-    try std.testing.expectEqual(@intCast(alphabet.AlphabetInfo(alphabet.DNA).KmerType, 0b01_01_01_01_11_11_11_11), it.next().?);
+    const kmerInfo = KmerInfo(alphabet.DNA, 3);
+    var it = Iterator(kmerInfo).init("ATCGNGTTNAAGN");
+
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b00_10_01), it.next().?); // ATC
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b10_01_11), it.next().?); // TCG
+
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // CGN ambiguous
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // GNG skipped
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // NGT skipped
+
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b11_10_10), it.next().?); // GTT
+
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // TTN skipped
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // TNA skipped
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // NAA skipped
+
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b00_00_11), it.next().?); // AAG
+
+    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // AGN skipped
+
     try std.testing.expect(it.next() == null);
 }

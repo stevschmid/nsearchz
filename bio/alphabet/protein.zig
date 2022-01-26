@@ -2,8 +2,6 @@ const std = @import("std");
 const assert = std.debug.assert;
 
 pub const Protein = struct {
-    pub const NumLettersPerKmer = 5;
-
     pub fn complement(letter: u8) u8 {
         return letter;
     }
