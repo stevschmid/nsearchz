@@ -97,9 +97,6 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
                 kmer_count_by_seq[seq_idx] = kmer_count - kmer_offset_by_seq[seq_idx];
             }
 
-            std.debug.print("Total Entries {} Unique {}\n", .{total_entries, total_unique_entries});
-            std.debug.print("{b:0>17}\n", .{kmers[kmer_offset_by_seq[1]]});
-
             return Self{
                 .allocator = allocator,
                 .sequences = sequences,
