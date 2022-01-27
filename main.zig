@@ -9,6 +9,7 @@ const Sequence = @import("sequence.zig").Sequence;
 const FastaReader = @import("fasta_reader.zig").FastaReader;
 const Database = @import("database.zig").Database;
 const Highscores = @import("highscores.zig").Highscores;
+const HSP = @import("hsp.zig").HSP;
 
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
@@ -25,7 +26,7 @@ const Strand = enum {
 const SearchParams = struct {
     max_accepts: u32 = 1,
     max_rejects: u32 = 16,
-    min_identity: f32 = 0.75,
+    min_identity: f32 = 0.8,
     strand: Strand = Strand.Plus,
 };
 
@@ -58,13 +59,13 @@ pub fn main() !void {
 
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
-    // search 
-    const search_params = SearchParams {};
+    // search
+    const search_params = SearchParams{};
 
     const default_min_hsp_length = 16;
     const max_hsp_join_distance = 16;
 
-    var query = try Sequence(alphabetChosen).init(allocator, "test", "CGATTACCGTTGATTTCA");
+    var query = try Sequence(alphabetChosen).init(allocator, "test", "AAAGCGCGAGTGAACGCAA");
     defer query.deinit();
 
     const min_hsp_length = std.math.min(default_min_hsp_length, query.data.len / 2);
@@ -104,13 +105,63 @@ pub fn main() !void {
 
         const seq_indices = db.seq_indices[offset..(offset + count)];
         for (seq_indices) |seq_index| {
-            // highscores.add(seq_index, 
+            // highscores.add(seq_index,
             hits_by_seq[seq_index] += 1;
             highscores.add(seq_index, hits_by_seq[seq_index]);
         }
     }
 
-    for (highscores.result()) |highscore_entry| {
-        print("Highscore {} -> {}\n", .{highscore_entry.id, highscore_entry.score});
+    var sps = std.ArrayList(HSP).init(allocator);
+    defer sps.deinit();
+
+    // For each candidate:
+    // - Get HSPs,
+    // - Check for good HSP (>= similarity threshold)
+    // - Join HSP together
+    // - Align
+    // - Check similarity
+
+    const top_to_bottom = highscores.top_to_bottom();
+    for (top_to_bottom) |candidate| {
+        const seq_id = candidate.id;
+        const seq = db.sequences[seq_id];
+
+        print("Highscore for sequence {s}: {}\n", .{ seq.identifier, candidate.score });
+
+        const offset = db.kmer_offset_by_seq[seq_id];
+        const count = db.kmer_count_by_seq[seq_id];
+        const other_kmers = db.kmers[offset..(offset + count)];
+
+        for (kmers) |kmer, pos| {
+            for (other_kmers) |other_kmer, other_pos| {
+                if (kmer != other_kmer)
+                    continue;
+
+                if ((pos == 0) or (other_pos == 0) or kmers[pos - 1] == kmerInfo.AmbiguousKmer or other_kmers[other_pos - 1] == kmerInfo.AmbiguousKmer or (kmers[pos - 1] != other_kmers[other_pos - 1])) {
+                    var cursor: usize = pos + 1;
+                    var other_cursor: usize = other_pos + 1;
+                    var length: usize = kmerInfo.NumLettersPerKmer;
+
+                    while (cursor < kmers.len and
+                        other_cursor < other_kmers.len and
+                        kmers[cursor] != kmerInfo.AmbiguousKmer and
+                        other_kmers[other_cursor] != kmerInfo.AmbiguousKmer and
+                        kmers[cursor] == other_kmers[other_cursor]) : ({
+                        cursor += 1;
+                        other_cursor += 1;
+                        length += 1;
+                    }) {}
+
+                    // add sps
+                    try sps.append(HSP { .a_start = pos, .a_end = cursor - 1, .b_start = other_pos, .b_end = other_cursor + 1 });
+                }
+            }
+        }
+
+        // Use the SPS to find all HSP
+        // Sort by length
+        // Try to find best chain
+        // Fill space between with banded align
+
     }
 }

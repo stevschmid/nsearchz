@@ -23,7 +23,7 @@ pub const Highscores = struct {
     }
 
     pub fn add(self: *Self, id: usize, score: usize) void {
-        var lowest_entry = &self.entries[0];
+        var lowest_entry = &self.entries[self.entries.len - 1];
         if (score < lowest_entry.*.score)
             return;
 
@@ -35,32 +35,31 @@ pub const Highscores = struct {
 
                 break index;
             }
-        } else 0;
+        } else self.entries.len - 1;
 
         var entry = &self.entries[slot];
         entry.id = id;
         entry.score = @intCast(isize, score);
 
-        // check if neighbouring entry is higher, if so swap
-        while (slot + 1 < self.entries.len) : (slot += 1) {
-            var this_entry = &self.entries[slot];
-            var next_entry = &self.entries[slot + 1];
+        // check if neighbouring entry is lower, if so swap
+        while (slot >= 1) : (slot -= 1) {
+            var right_entry = &self.entries[slot];
+            var left_entry = &self.entries[slot - 1];
 
-            if (next_entry.score > this_entry.score)
+            if (left_entry.score > right_entry.score)
                 break;
 
-            swap(this_entry, next_entry);
+            swap(right_entry, left_entry);
         }
     }
 
-    pub fn result(self: *Self) []const Entry {
+    pub fn top_to_bottom(self: *Self) []const Entry {
         // skip empty entries
-        for(self.entries) |entry, index| {
-            if (entry.score >= 0) {
-                return self.entries[index..];
-            }
-        } else return self.entries[0..0]; // empty slice
+        var max_slot: usize = for (self.entries) |entry, index| {
+            if (entry.score < 0) break index;
+        } else self.entries.len; 
 
+        return self.entries[0..max_slot];
     }
 
     pub fn deinit(self: *Self) void {
@@ -80,7 +79,7 @@ test "test" {
     var hs = try Highscores.init(allocator, 3);
     defer hs.deinit();
 
-    try std.testing.expectEqual(@as(usize, 0), hs.result().len);
+    try std.testing.expectEqual(@as(usize, 0), hs.top_to_bottom().len);
 
     const IdA = 3;
     const IdB = 51;
@@ -88,24 +87,27 @@ test "test" {
     const IdD = 101;
 
     hs.add(IdA, 100);
-    try std.testing.expectEqual(@as(usize, 1), hs.result().len);
+    try std.testing.expectEqual(@as(usize, 1), hs.top_to_bottom().len);
 
     hs.add(IdB, 20);
-    try std.testing.expectEqual(@as(usize, 2), hs.result().len);
+    try std.testing.expectEqual(@as(usize, 2), hs.top_to_bottom().len);
+
+    var cmp1 = [_]Highscores.Entry{ .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 20 } };
+    try std.testing.expectEqualSlices(Highscores.Entry, &cmp1, hs.top_to_bottom());
 
     hs.add(IdB, 150);
-    try std.testing.expectEqual(@as(usize, 2), hs.result().len);
+    try std.testing.expectEqual(@as(usize, 2), hs.top_to_bottom().len);
 
     hs.add(IdC, 50);
-    try std.testing.expectEqual(@as(usize, 3), hs.result().len);
+    try std.testing.expectEqual(@as(usize, 3), hs.top_to_bottom().len);
 
     hs.add(IdD, 30);
-    try std.testing.expectEqual(@as(usize, 3), hs.result().len);
+    try std.testing.expectEqual(@as(usize, 3), hs.top_to_bottom().len);
 
-    var cmp = [_]Highscores.Entry{ .{ .id = IdC, .score = 50 }, .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 150 } }; 
-    try std.testing.expectEqualSlices(Highscores.Entry, &cmp, hs.result());
+    var cmp2 = [_]Highscores.Entry{ .{ .id = IdB, .score = 150 }, .{ .id = IdA, .score = 100 }, .{ .id = IdC, .score = 50 } }; 
+    try std.testing.expectEqualSlices(Highscores.Entry, &cmp2, hs.top_to_bottom());
 
     hs.add(IdC, 200);
-    cmp = [_]Highscores.Entry{ .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 150 }, .{ .id = IdC, .score = 200 } };
-    try std.testing.expectEqualSlices(Highscores.Entry, &cmp, hs.result());
+    var cmp3 = [_]Highscores.Entry{ .{ .id = IdC, .score = 200 }, .{ .id = IdB, .score = 150 }, .{ .id = IdA, .score = 100 } };
+    try std.testing.expectEqualSlices(Highscores.Entry, &cmp3, hs.top_to_bottom());
 }
