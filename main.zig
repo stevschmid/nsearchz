@@ -73,4 +73,44 @@ pub fn main() !void {
     _ = max_hsp_join_distance;
     _ = search_params;
 
+    var highscores = try Highscores.init(allocator, search_params.max_accepts + search_params.max_rejects);
+    defer highscores.deinit();
+
+    var kmer_it = bio.kmer.Iterator(kmerInfo).init(query.data);
+
+    var kmers = try allocator.alloc(kmerInfo.KmerType, kmer_it.num_total());
+    defer allocator.free(kmers);
+
+    var hits_by_seq = try allocator.alloc(usize, db.sequences.len);
+    defer allocator.free(hits_by_seq);
+
+    // reset hit counter to 0s
+    std.mem.set(usize, hits_by_seq, 0);
+
+    var unique_check = try std.DynamicBitSet.initEmpty(allocator, kmerInfo.MaxKmers);
+    defer unique_check.deinit();
+
+    var index: usize = 0;
+    while (kmer_it.next()) |kmer| : (index += 1) {
+        kmers[index] = kmer;
+
+        if (kmer == kmerInfo.AmbiguousKmer or unique_check.isSet(kmer))
+            continue;
+
+        unique_check.set(kmer);
+
+        const offset = db.seq_offset_by_kmer[kmer];
+        const count = db.seq_count_by_kmer[kmer];
+
+        const seq_indices = db.seq_indices[offset..(offset + count)];
+        for (seq_indices) |seq_index| {
+            // highscores.add(seq_index, 
+            hits_by_seq[seq_index] += 1;
+            highscores.add(seq_index, hits_by_seq[seq_index]);
+        }
+    }
+
+    for (highscores.result()) |highscore_entry| {
+        print("Highscore {} -> {}\n", .{highscore_entry.id, highscore_entry.score});
+    }
 }

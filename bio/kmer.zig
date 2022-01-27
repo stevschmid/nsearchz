@@ -35,6 +35,14 @@ pub fn Iterator(comptime kmerInfo: type) type {
             };
         }
 
+        pub fn num_total(self: *Self) usize {
+            if (kmerInfo.NumLettersPerKmer > self.letters.len)  {
+                return 0;
+            } else {
+                return self.letters.len - kmerInfo.NumLettersPerKmer + 1;
+            }
+        }
+
         pub fn next(self: *Self) ?kmerInfo.KmerType {
             while (self.pos + 1 < kmerInfo.NumLettersPerKmer and self.consumeNext()) {
                 // advance up to pos - 1 for the initial kmer
@@ -90,33 +98,52 @@ test "basic test" {
     const kmerInfo = KmerInfo(alphabet.DNA, 3);
 
     var it = Iterator(kmerInfo).init("ATCGGG");
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b00_10_01), it.next().?);
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b10_01_11), it.next().?);
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b01_11_11), it.next().?);
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b11_11_11), it.next().?);
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b00_10_01), it.next().?);
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b10_01_11), it.next().?);
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b01_11_11), it.next().?);
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b11_11_11), it.next().?);
     try std.testing.expect(it.next() == null);
+
+    try std.testing.expectEqual(@as(usize, 4), it.num_total());
 }
 
 test "ambiguous nucleotides" {
     const kmerInfo = KmerInfo(alphabet.DNA, 3);
     var it = Iterator(kmerInfo).init("ATCGNGTTNAAGN");
 
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b00_10_01), it.next().?); // ATC
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b10_01_11), it.next().?); // TCG
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b00_10_01), it.next().?); // ATC
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b10_01_11), it.next().?); // TCG
 
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // CGN ambiguous
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // GNG skipped
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // NGT skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // CGN ambiguous
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // GNG skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // NGT skipped
 
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b11_10_10), it.next().?); // GTT
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b11_10_10), it.next().?); // GTT
 
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // TTN skipped
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // TNA skipped
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // NAA skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // TTN skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // TNA skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // NAA skipped
 
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b00_00_11), it.next().?); // AAG
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b00_00_11), it.next().?); // AAG
 
-    try std.testing.expectEqual(@intCast(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // AGN skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // AGN skipped
 
     try std.testing.expect(it.next() == null);
+}
+
+test "too short" {
+    const kmerInfo = KmerInfo(alphabet.DNA, 4);
+    var it = Iterator(kmerInfo).init("ATT");
+
+    try std.testing.expectEqual(@as(usize, 0), it.num_total());
+    try std.testing.expect(it.next() == null); 
+}
+
+test "just right" {
+    const kmerInfo = KmerInfo(alphabet.DNA, 4);
+    var it = Iterator(kmerInfo).init("ATTG");
+
+    try std.testing.expectEqual(@as(usize, 1), it.num_total());
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b00_10_10_11), it.next().?);
+    try std.testing.expect(it.next() == null); 
 }

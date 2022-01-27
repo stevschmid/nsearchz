@@ -1,21 +1,20 @@
 const std = @import("std");
 
-const HighscoreEntry = struct {
-    id: usize,
-    score: isize,
-};
-
-const Highscores = struct {
+pub const Highscores = struct {
     const Self = @This();
+    pub const Entry = struct {
+        id: usize,
+        score: isize,
+    };
 
     allocator: std.mem.Allocator,
-    entries: []HighscoreEntry,
+    entries: []Entry,
 
     pub fn init(allocator: std.mem.Allocator, num_entries: usize) !Self {
         std.debug.assert(num_entries > 0);
 
-        const entries = try allocator.alloc(HighscoreEntry, num_entries);
-        std.mem.set(HighscoreEntry, entries, HighscoreEntry{ .id = 0, .score = -1 });
+        const entries = try allocator.alloc(Entry, num_entries);
+        std.mem.set(Entry, entries, Entry{ .id = 0, .score = -1 });
 
         return Self{
             .allocator = allocator,
@@ -54,13 +53,13 @@ const Highscores = struct {
         }
     }
 
-    pub fn result(self: *Self) ?[]const HighscoreEntry {
+    pub fn result(self: *Self) []const Entry {
         // skip empty entries
         for(self.entries) |entry, index| {
             if (entry.score >= 0) {
                 return self.entries[index..];
             }
-        } else return null;
+        } else return self.entries[0..0]; // empty slice
 
     }
 
@@ -81,7 +80,7 @@ test "test" {
     var hs = try Highscores.init(allocator, 3);
     defer hs.deinit();
 
-    try std.testing.expect(hs.result() == null);
+    try std.testing.expectEqual(@as(usize, 0), hs.result().len);
 
     const IdA = 3;
     const IdB = 51;
@@ -89,24 +88,24 @@ test "test" {
     const IdD = 101;
 
     hs.add(IdA, 100);
-    try std.testing.expectEqual(@as(usize, 1), hs.result().?.len);
+    try std.testing.expectEqual(@as(usize, 1), hs.result().len);
 
     hs.add(IdB, 20);
-    try std.testing.expectEqual(@as(usize, 2), hs.result().?.len);
+    try std.testing.expectEqual(@as(usize, 2), hs.result().len);
 
     hs.add(IdB, 150);
-    try std.testing.expectEqual(@as(usize, 2), hs.result().?.len);
+    try std.testing.expectEqual(@as(usize, 2), hs.result().len);
 
     hs.add(IdC, 50);
-    try std.testing.expectEqual(@as(usize, 3), hs.result().?.len);
+    try std.testing.expectEqual(@as(usize, 3), hs.result().len);
 
     hs.add(IdD, 30);
-    try std.testing.expectEqual(@as(usize, 3), hs.result().?.len);
+    try std.testing.expectEqual(@as(usize, 3), hs.result().len);
 
-    var cmp = [_]HighscoreEntry{ .{ .id = IdC, .score = 50 }, .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 150 } }; 
-    try std.testing.expectEqualSlices(HighscoreEntry, &cmp, hs.result().?);
+    var cmp = [_]Highscores.Entry{ .{ .id = IdC, .score = 50 }, .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 150 } }; 
+    try std.testing.expectEqualSlices(Highscores.Entry, &cmp, hs.result());
 
     hs.add(IdC, 200);
-    cmp = [_]HighscoreEntry{ .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 150 }, .{ .id = IdC, .score = 200 } };
-    try std.testing.expectEqualSlices(HighscoreEntry, &cmp, hs.result().?);
+    cmp = [_]Highscores.Entry{ .{ .id = IdA, .score = 100 }, .{ .id = IdB, .score = 150 }, .{ .id = IdC, .score = 200 } };
+    try std.testing.expectEqualSlices(Highscores.Entry, &cmp, hs.result());
 }
