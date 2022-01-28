@@ -8,11 +8,34 @@ const AlignDirection = enum {
 };
 
 const CigarOp = enum(u8) {
-    unknown = ' ',
     match = '=',
     mismatch = 'X',
     deletion = 'D',
     insertion = 'I',
+};
+
+const Cigar = struct {
+    const Self = @This();
+
+    ops: std.ArrayList(CigarOp),
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .ops = std.ArrayList(CigarOp).init(allocator),
+        };
+    }
+
+    pub fn add(self: *Self, op: CigarOp) !void {
+        try self.ops.append(op);
+    }
+
+    pub fn reverse(self: *Self) void {
+        std.mem.reverse(CigarOp, self.ops.items);
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.ops.deinit();
+    }
 };
 
 const Result = struct {
@@ -52,7 +75,7 @@ pub fn ExtendAlign(comptime A: type) type {
             self.ops.deinit();
         }
 
-        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: AlignDirection, start_one: usize, start_two: usize) !Result {
+        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: AlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !Result {
             const width = if (dir == AlignDirection.forward) (seq_one.data.len - start_one + 1) else (start_one + 1);
             const height = if (dir == AlignDirection.forward) (seq_two.data.len - start_two + 1) else (start_two + 1);
 
@@ -108,7 +131,7 @@ pub fn ExtendAlign(comptime A: type) type {
 
                     var match: bool = false;
 
-                    if(x > 0) {
+                    if (x > 0) {
                         // diagScore: score at col-1, row-1
                         pos_one = if (dir == AlignDirection.forward) start_one + x - 1 else start_one - x;
                         pos_two = if (dir == AlignDirection.forward) start_two + y - 1 else start_two - y;
@@ -140,7 +163,7 @@ pub fn ExtendAlign(comptime A: type) type {
                         // X-Drop test failed
                         row[x].score = MinScore;
 
-                        if(x == first_x) {
+                        if (x == first_x) {
                             // Tighten left bound
                             first_x += 1;
                         }
@@ -199,19 +222,39 @@ pub fn ExtendAlign(comptime A: type) type {
                 }
 
                 // Properly reset right bound
-                if  (row_size < width) {
+                if (row_size < width) {
                     row[row_size].score = MinScore;
                     row[row_size].score_gap = MinScore;
                     row_size += 1;
                 }
-
             } // while y
 
-            var bx = best_x;
-            var by = best_y;
+            if (cigar != null) {
+                var bx = best_x;
+                var by = best_y;
 
-            while(bx > 0 and by > 0) {
-                const op = self.ops[by * width + bx];
+                while (bx > 0 or by > 0) {
+                    const op = ops[by * width + bx];
+                    try cigar.?.add(op);
+
+                    // where did we come from?
+                    switch (op) {
+                        CigarOp.insertion => { 
+                            bx -= 1;
+                        },
+                        CigarOp.deletion => { 
+                            by -= 1;
+                        },
+                        CigarOp.match, CigarOp.mismatch => { 
+                            bx -= 1;
+                            by -= 1;
+                        },
+                    }
+                }
+
+                if (dir == AlignDirection.forward) {
+                    cigar.?.reverse();
+                }
             }
 
             return Result{
@@ -235,9 +278,14 @@ test "forward" {
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator);
     defer extend_align.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 0, 0);
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
+
+    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 4), result.score); // 2 matches = +4
+    try std.testing.expectEqualSlices(CigarOp, &[_]CigarOp{ CigarOp.match, CigarOp.match }, cigar.ops.items);
 }
+
 
 test "backward" {
     const allocator = std.testing.allocator;
@@ -251,7 +299,7 @@ test "backward" {
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator);
     defer extend_align.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.backward, 3, 2);
+    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.backward, 3, 2, null);
     try std.testing.expectEqual(@as(usize, 1), result.pos_one);
     try std.testing.expectEqual(@as(usize, 0), result.pos_two);
 }

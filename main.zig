@@ -153,7 +153,7 @@ pub fn main() !void {
                     }) {}
 
                     // add sps
-                    try sps.append(HSP { .a_start = pos, .a_end = cursor - 1, .b_start = other_pos, .b_end = other_cursor + 1 });
+                    try sps.append(HSP{ .a_start = pos, .a_end = cursor - 1, .b_start = other_pos, .b_end = other_cursor + 1 });
                 }
             }
         }
