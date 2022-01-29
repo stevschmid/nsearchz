@@ -1,11 +1,11 @@
 const std = @import("std");
+
 const alphabet = @import("bio/alphabet.zig");
 const Sequence = @import("sequence.zig").Sequence;
-
 const Cigar = @import("cigar.zig").Cigar;
 const CigarOp = @import("cigar.zig").CigarOp;
 
-const Result = struct {
+pub const ExtendAlignResult = struct {
     score: i32,
     pos_one: usize,
     pos_two: usize,
@@ -51,7 +51,7 @@ pub fn ExtendAlign(comptime A: type) type {
             self.ops.deinit();
         }
 
-        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: ExtendAlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !Result {
+        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: ExtendAlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !ExtendAlignResult {
             const width = if (dir == ExtendAlignDirection.forward) (seq_one.data.len - start_one + 1) else (start_one + 1);
             const height = if (dir == ExtendAlignDirection.forward) (seq_two.data.len - start_two + 1) else (start_two + 1);
 
@@ -127,13 +127,8 @@ pub fn ExtendAlign(comptime A: type) type {
                     //  - coming from diag (current),
                     //  - coming from left (row)
                     //  - coming from top (col)
-                    if (score < row_gap) {
-                        score = row_gap;
-                    }
-
-                    if (score < col_gap) {
-                        score = col_gap;
-                    }
+                    score = std.math.max(score, row_gap);
+                    score = std.math.max(score, col_gap);
 
                     // row[x] right now points to the previous row, so use this
                     // in the next iteration for the diagonal computation of (x, y )
@@ -209,6 +204,7 @@ pub fn ExtendAlign(comptime A: type) type {
                 }
             } // while y
 
+            // backtrack
             if (cigar != null) {
                 var bx = best_x;
                 var by = best_y;
@@ -237,7 +233,7 @@ pub fn ExtendAlign(comptime A: type) type {
                 }
             }
 
-            return Result{
+            return ExtendAlignResult{
                 .score = best_score,
                 .pos_one = best_one,
                 .pos_two = best_two,
