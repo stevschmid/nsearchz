@@ -2,67 +2,18 @@ const std = @import("std");
 const alphabet = @import("bio/alphabet.zig");
 const Sequence = @import("sequence.zig").Sequence;
 
-const AlignDirection = enum {
-    forward,
-    backward,
-};
-
-const CigarOp = enum(u8) {
-    match = '=',
-    mismatch = 'X',
-    deletion = 'D',
-    insertion = 'I',
-};
-
-const Cigar = struct {
-    const Self = @This();
-    const Entry = struct {
-        op: CigarOp,
-        count: usize = 0,
-    };
-
-    entries: std.ArrayList(Entry),
-
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{
-            .entries = std.ArrayList(Entry).init(allocator),
-        };
-    }
-
-    pub fn add(self: *Self, op: CigarOp) !void {
-        var last_entry = if (self.entries.items.len == 0) null else &self.entries.items[self.entries.items.len - 1];
-        if (last_entry == null or last_entry.?.op != op) {
-            try self.entries.append(Entry{ .op = op, .count = 1 });
-        } else {
-            last_entry.?.count += 1;
-        }
-    }
-
-    pub fn reverse(self: *Self) void {
-        std.mem.reverse(Entry, self.entries.items);
-    }
-
-    pub fn toStringAlloc(self: *Self, allocator: std.mem.Allocator) ![]u8 {
-        var str = std.ArrayList(u8).init(allocator);
-        var buf: [128]u8 = undefined;
-
-        for (self.entries.items) |entry| {
-            const xyz = try std.fmt.bufPrint(buf[0..], "{}{c}", .{ entry.count, @enumToInt(entry.op) });
-            try str.appendSlice(xyz);
-        }
-
-        return str.toOwnedSlice();
-    }
-
-    pub fn deinit(self: *Self) void {
-        self.entries.deinit();
-    }
-};
+const Cigar = @import("cigar.zig").Cigar;
+const CigarOp = @import("cigar.zig").CigarOp;
 
 const Result = struct {
     score: i32,
     pos_one: usize,
     pos_two: usize,
+};
+
+pub const ExtendAlignDirection = enum {
+    forward,
+    backward,
 };
 
 pub const ExtendAlignOptions = struct {
@@ -100,9 +51,9 @@ pub fn ExtendAlign(comptime A: type) type {
             self.ops.deinit();
         }
 
-        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: AlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !Result {
-            const width = if (dir == AlignDirection.forward) (seq_one.data.len - start_one + 1) else (start_one + 1);
-            const height = if (dir == AlignDirection.forward) (seq_two.data.len - start_two + 1) else (start_two + 1);
+        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: ExtendAlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !Result {
+            const width = if (dir == ExtendAlignDirection.forward) (seq_one.data.len - start_one + 1) else (start_one + 1);
+            const height = if (dir == ExtendAlignDirection.forward) (seq_two.data.len - start_two + 1) else (start_two + 1);
 
             try self.row.resize(@floatToInt(usize, @intToFloat(f32, width) * 1.5));
             const row = self.row.items;
@@ -162,8 +113,8 @@ pub fn ExtendAlign(comptime A: type) type {
 
                     if (x > 0) {
                         // diagScore: score at col-1, row-1
-                        pos_one = if (dir == AlignDirection.forward) start_one + x - 1 else start_one - x;
-                        pos_two = if (dir == AlignDirection.forward) start_two + y - 1 else start_two - y;
+                        pos_one = if (dir == ExtendAlignDirection.forward) start_one + x - 1 else start_one - x;
+                        pos_two = if (dir == ExtendAlignDirection.forward) start_two + y - 1 else start_two - y;
 
                         const letter_one = seq_one.data[pos_one];
                         const letter_two = seq_two.data[pos_two];
@@ -281,7 +232,7 @@ pub fn ExtendAlign(comptime A: type) type {
                     }
                 }
 
-                if (dir == AlignDirection.forward) {
+                if (dir == ExtendAlignDirection.forward) {
                     cigar.?.reverse();
                 }
             }
@@ -310,7 +261,7 @@ test "forward" {
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 0, 0, &cigar);
+    var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 4), result.score); // 2 matches = +4
     // try std.testing.expectEqualSlices(CigarOp, &[_]CigarOp{ CigarOp.match, CigarOp.match }, cigar.ops.items);
 
@@ -331,7 +282,7 @@ test "gaps" {
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 0, 0, &cigar);
+    var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 5), result.score); // 6 matches, 1 gap,  gap len = 1 - 3 - *
 
     var cigar_str = try cigar.toStringAlloc(allocator);
@@ -355,7 +306,7 @@ test "forward extend" {
         var cigar = Cigar.init(allocator);
         defer cigar.deinit();
 
-        var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 0, 0, &cigar);
+        var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.forward, 0, 0, &cigar);
         try std.testing.expectEqual(result.pos_one, 3);
         try std.testing.expectEqual(result.pos_two, 3);
 
@@ -369,7 +320,7 @@ test "forward extend" {
         var cigar = Cigar.init(allocator);
         defer cigar.deinit();
 
-        var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 3, 3, &cigar);
+        var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.forward, 3, 3, &cigar);
         try std.testing.expectEqual(result.pos_one, 3);
         try std.testing.expectEqual(result.pos_two, 3);
 
@@ -383,7 +334,7 @@ test "forward extend" {
         var cigar = Cigar.init(allocator);
         defer cigar.deinit();
 
-        var result = try extend_align.extend(seq_one, seq_two, AlignDirection.forward, 4, 4, &cigar);
+        var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.forward, 4, 4, &cigar);
         try std.testing.expectEqual(result.pos_one, 4);
         try std.testing.expectEqual(result.pos_two, 4);
 
@@ -406,7 +357,7 @@ test "backward" {
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, ExtendAlignOptions{});
     defer extend_align.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, AlignDirection.backward, 3, 2, null);
+    var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.backward, 3, 2, null);
     try std.testing.expectEqual(@as(usize, 1), result.pos_one);
     try std.testing.expectEqual(@as(usize, 0), result.pos_two);
 }
