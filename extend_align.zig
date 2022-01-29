@@ -51,7 +51,7 @@ pub fn ExtendAlign(comptime A: type) type {
             self.ops.deinit();
         }
 
-        pub fn extend(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: ExtendAlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !ExtendAlignResult {
+        pub fn process(self: *Self, seq_one: Sequence(A), seq_two: Sequence(A), dir: ExtendAlignDirection, start_one: usize, start_two: usize, cigar: ?*Cigar) !ExtendAlignResult {
             const width = if (dir == .forward) (seq_one.data.len - start_one + 1) else (start_one + 1);
             const height = if (dir == .forward) (seq_two.data.len - start_two + 1) else (start_two + 1);
 
@@ -259,7 +259,7 @@ test "forward" {
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, ExtendAlignDirection.forward, 0, 0, &cigar);
+    var result = try extend_align.process(seq_one, seq_two, ExtendAlignDirection.forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 4), result.score); // 2 matches = +4
     // try std.testing.expectEqualSlices(CigarOp, &[_]CigarOp{ CigarOp.match, CigarOp.match }, cigar.ops.items);
 
@@ -280,7 +280,7 @@ test "gaps" {
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, .forward, 0, 0, &cigar);
+    var result = try extend_align.process(seq_one, seq_two, .forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 5), result.score); // 6 matches, 1 gap,  gap len = 1 - 3 - *
 
     var cigar_str = try cigar.toStringAlloc(allocator);
@@ -304,7 +304,7 @@ test "forward extend" {
         var cigar = Cigar.init(allocator);
         defer cigar.deinit();
 
-        var result = try extend_align.extend(seq_one, seq_two, .forward, 0, 0, &cigar);
+        var result = try extend_align.process(seq_one, seq_two, .forward, 0, 0, &cigar);
         try std.testing.expectEqual(result.pos_one, 3);
         try std.testing.expectEqual(result.pos_two, 3);
 
@@ -318,7 +318,7 @@ test "forward extend" {
         var cigar = Cigar.init(allocator);
         defer cigar.deinit();
 
-        var result = try extend_align.extend(seq_one, seq_two, .forward, 3, 3, &cigar);
+        var result = try extend_align.process(seq_one, seq_two, .forward, 3, 3, &cigar);
         try std.testing.expectEqual(result.pos_one, 3);
         try std.testing.expectEqual(result.pos_two, 3);
 
@@ -332,7 +332,7 @@ test "forward extend" {
         var cigar = Cigar.init(allocator);
         defer cigar.deinit();
 
-        var result = try extend_align.extend(seq_one, seq_two, .forward, 4, 4, &cigar);
+        var result = try extend_align.process(seq_one, seq_two, .forward, 4, 4, &cigar);
         try std.testing.expectEqual(result.pos_one, 4);
         try std.testing.expectEqual(result.pos_two, 4);
 
@@ -355,7 +355,7 @@ test "backward" {
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, .{});
     defer extend_align.deinit();
 
-    var result = try extend_align.extend(seq_one, seq_two, .backward, 3, 2, null);
+    var result = try extend_align.process(seq_one, seq_two, .backward, 3, 2, null);
     try std.testing.expectEqual(@as(usize, 1), result.pos_one);
     try std.testing.expectEqual(@as(usize, 0), result.pos_two);
 }

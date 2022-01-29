@@ -2,16 +2,18 @@ const std = @import("std");
 const alphabet = @import("alphabet.zig");
 
 pub fn KmerInfo(comptime A: type, comptime NumLettersPerKmer: comptime_int) type {
-    return struct{
+    return struct {
         pub const NumLettersPerKmer = NumLettersPerKmer;
         pub const Alphabet = A;
         pub const LetterToBitMapType = @typeInfo(@typeInfo(@TypeOf(A.mapToBits)).Fn.return_type.?).Optional.child; // ?u2 -> u2
         pub const NumBitsPerLetter = @bitSizeOf(LetterToBitMapType);
         pub const NumBitsPerKmer = (NumLettersPerKmer * NumBitsPerLetter) + 1; // +1 for ambiguous kmer
-        pub const KmerType = @Type(.{ .Int = .{
-            .signedness = .unsigned,
-            .bits = NumBitsPerKmer, // save ambiguous kmer
-        } });
+        pub const KmerType = @Type(.{
+            .Int = .{
+                .signedness = .unsigned,
+                .bits = NumBitsPerKmer, // save ambiguous kmer
+            },
+        });
         pub const MaxKmers = (1 << (NumBitsPerKmer - 1)) + 1;
         pub const AmbiguousKmer = (1 << NumBitsPerKmer) - 1;
         pub const KmerMask = AmbiguousKmer >> 1;
@@ -36,7 +38,7 @@ pub fn Iterator(comptime kmerInfo: type) type {
         }
 
         pub fn num_total(self: *Self) usize {
-            if (kmerInfo.NumLettersPerKmer > self.letters.len)  {
+            if (kmerInfo.NumLettersPerKmer > self.letters.len) {
                 return 0;
             } else {
                 return self.letters.len - kmerInfo.NumLettersPerKmer + 1;
@@ -121,12 +123,12 @@ test "ambiguous nucleotides" {
     try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b11_10_10), it.next().?); // GTT
 
     try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // TTN skipped
-    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // TNA skipped
-    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // NAA skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // TNA skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // NAA skipped
 
     try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b00_00_11), it.next().?); // AAG
 
-    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?);  // AGN skipped
+    try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b1_11_11_11), it.next().?); // AGN skipped
 
     try std.testing.expect(it.next() == null);
 }
@@ -136,7 +138,7 @@ test "too short" {
     var it = Iterator(kmerInfo).init("ATT");
 
     try std.testing.expectEqual(@as(usize, 0), it.num_total());
-    try std.testing.expect(it.next() == null); 
+    try std.testing.expect(it.next() == null);
 }
 
 test "just right" {
@@ -145,5 +147,5 @@ test "just right" {
 
     try std.testing.expectEqual(@as(usize, 1), it.num_total());
     try std.testing.expectEqual(@as(kmerInfo.KmerType, 0b00_10_10_11), it.next().?);
-    try std.testing.expect(it.next() == null); 
+    try std.testing.expect(it.next() == null);
 }

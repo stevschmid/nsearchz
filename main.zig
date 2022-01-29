@@ -4,6 +4,11 @@ const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
 
 const utils = @import("utils.zig");
+const ea = @import("extend_align.zig");
+const ba = @import("banded_align.zig");
+
+const Cigar = @import("cigar.zig").Cigar;
+const CigarOp = @import("cigar.zig").CigarOp;
 
 const Sequence = @import("sequence.zig").Sequence;
 const FastaReader = @import("fasta_reader.zig").FastaReader;
@@ -60,6 +65,9 @@ pub fn main() !void {
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     // search
+    var extend_align = ea.ExtendAlign(alphabetChosen).init(allocator, .{});
+    defer extend_align.deinit();
+
     const search_params = SearchParams{};
 
     const default_min_hsp_length = 16;
@@ -132,6 +140,9 @@ pub fn main() !void {
         const count = db.kmer_count_by_seq[seq_id];
         const other_kmers = db.kmers[offset..(offset + count)];
 
+        // Determine SPS
+        sps.clearRetainingCapacity();
+
         for (kmers) |kmer, pos| {
             for (other_kmers) |other_kmer, other_pos| {
                 if (kmer != other_kmer)
@@ -146,14 +157,15 @@ pub fn main() !void {
                         other_cursor < other_kmers.len and
                         kmers[cursor] != kmerInfo.AmbiguousKmer and
                         other_kmers[other_cursor] != kmerInfo.AmbiguousKmer and
-                        kmers[cursor] == other_kmers[other_cursor]) : ({
+                        kmers[cursor] == other_kmers[other_cursor])
+                    {
                         cursor += 1;
                         other_cursor += 1;
                         length += 1;
-                    }) {}
+                    }
 
                     // add sps
-                    try sps.append(HSP{ .a_start = pos, .a_end = cursor - 1, .b_start = other_pos, .b_end = other_cursor + 1 });
+                    try sps.append(.{ .start_one = pos, .end_one = cursor - 1, .start_two = other_pos, .end_two = other_cursor - 1 });
                 }
             }
         }
@@ -162,6 +174,66 @@ pub fn main() !void {
         // Sort by length
         // Try to find best chain
         // Fill space between with banded align
+        var left_cigar: Cigar = Cigar.init(allocator);
+        defer left_cigar.deinit();
 
-    }
+        var right_cigar: Cigar = Cigar.init(allocator);
+        defer right_cigar.deinit();
+
+        var middle_cigar: Cigar = Cigar.init(allocator);
+        defer middle_cigar.deinit();
+
+        for (sps.items) |sp| {
+            var start_one = sp.start_one;
+            var end_one = sp.end_one;
+
+            var start_two = sp.start_two;
+            var end_two = sp.end_two;
+
+            var result: ea.ExtendAlignResult = undefined;
+
+            result = try extend_align.process(query, seq, .backward, start_one, start_two, &left_cigar);
+            if (!left_cigar.isEmpty()) {
+                start_one = result.pos_one;
+                start_two = result.pos_two;
+            }
+
+            result = try extend_align.process(query, seq, .forward, end_one + 1, end_two + 1, &right_cigar);
+            if (!right_cigar.isEmpty()) {
+                end_one = result.pos_one;
+                end_two = result.pos_two;
+            }
+
+            var hsp = HSP{ .start_one = start_one, .end_one = end_one, .start_two = start_two, .end_two = end_two };
+            if (hsp.length() > min_hsp_length) {
+                // Construct hsp cigar (spaced seeds so we cannot assume full match)
+                middle_cigar.clear();
+
+                var a = hsp.start_one;
+                var b = hsp.start_two;
+
+                var middle_score: i32 = 0;
+                while (a <= hsp.end_one and b <= hsp.end_two) : ({
+                    a += 1;
+                    b += 1;
+                }) {
+                    const letter_one = query.data[a];
+                    const letter_two = seq.data[a];
+
+                    const match = alphabetChosen.match(letter_one, letter_two);
+                    const score = alphabetChosen.score(letter_one, letter_two);
+
+                    const op = if (match) CigarOp.match else CigarOp.mismatch;
+
+                    try middle_cigar.add(op);
+                    middle_score += score;
+                }
+
+                hsp.score = left_score + middle_score + right_score;
+            }
+        }
+
+        _ = left_cigar;
+        _ = right_cigar;
+    } // each candidate
 }

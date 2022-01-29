@@ -3,73 +3,73 @@ const std = @import("std");
 pub const HSP = struct {
     const Self = @This();
 
-    a_start: usize,
-    a_end: usize,
+    start_one: usize,
+    end_one: usize,
 
-    b_start: usize,
-    b_end: usize,
+    start_two: usize,
+    end_two: usize,
 
     // cigar: Cigar,
 
     score: i32 = 0,
 
     pub fn length(self: Self) usize {
-        return std.math.max(self.a_end - self.a_start, self.b_end - self.b_start) + 1;
+        return std.math.max(self.end_one - self.start_one, self.end_two - self.start_two) + 1;
     }
 
     pub fn is_overlapping(self: Self, other: HSP) bool {
-        if (self.a_start <= other.a_end and other.a_start <= self.a_end) // overlap in A direction
+        if (self.start_one <= other.end_one and other.start_one <= self.end_one) // overlap in A direction
             return true;
 
-        if (self.b_start <= other.b_end and other.b_start <= self.b_end) // overlap in B direction
+        if (self.start_two <= other.end_two and other.start_two <= self.end_two) // overlap in B direction
             return true;
 
         return false;
     }
 
     pub fn distance_to(self: Self, other: HSP) usize {
-        var dx = if (self.a_start > other.a_end) self.a_start - other.a_end else other.a_start - self.a_end;
+        var dx = if (self.start_one > other.end_one) self.start_one - other.end_one else other.start_one - self.end_one;
         if (dx > 0)
             dx -= 1;
 
-        var dy = if (self.b_start > other.b_end) self.b_start - other.b_end else other.b_start - self.b_end;
+        var dy = if (self.start_two > other.end_two) self.start_two - other.end_two else other.start_two - self.end_two;
         if (dy > 0)
             dy -= 1;
 
-        return std.math.sqrt(dx*dx + dy*dy);
+        return std.math.sqrt(dx * dx + dy * dy);
     }
 };
 
 test "length" {
-    const hsp = HSP { .a_start = 5, .a_end = 6, .b_start = 11, .b_end = 15 };
+    const hsp = HSP{ .start_one = 5, .end_one = 6, .start_two = 11, .end_two = 15 };
     try std.testing.expectEqual(@as(usize, 5), hsp.length());
 
-    const hsp2 = HSP { .a_start = 1, .a_end = 6, .b_start = 11, .b_end = 15 };
+    const hsp2 = HSP{ .start_one = 1, .end_one = 6, .start_two = 11, .end_two = 15 };
     try std.testing.expectEqual(@as(usize, 6), hsp2.length());
 }
 
 test "overlapping" {
-    const hsp = HSP { .a_start = 1, .a_end = 2, .b_start = 25, .b_end = 27 };
+    const hsp = HSP{ .start_one = 1, .end_one = 2, .start_two = 25, .end_two = 27 };
 
-    try std.testing.expectEqual(true, hsp.is_overlapping(HSP { .a_start = 1, .a_end = 2, .b_start = 55, .b_end = 57 } ));
-    try std.testing.expectEqual(true, hsp.is_overlapping(HSP { .a_start = 2, .a_end = 3, .b_start = 55, .b_end = 57 } ));
-    try std.testing.expectEqual(false, hsp.is_overlapping(HSP { .a_start = 3, .a_end = 4, .b_start = 55, .b_end = 57 } ));
-    try std.testing.expectEqual(true, hsp.is_overlapping(HSP { .a_start = 3, .a_end = 4, .b_start = 20, .b_end = 28 } ));
-    try std.testing.expectEqual(true, hsp.is_overlapping(HSP { .a_start = 3, .a_end = 4, .b_start = 20, .b_end = 25 } ));
-    try std.testing.expectEqual(false, hsp.is_overlapping(HSP { .a_start = 3, .a_end = 4, .b_start = 20, .b_end = 24 } ));
-    try std.testing.expectEqual(true, hsp.is_overlapping(HSP { .a_start = 0, .a_end = 100, .b_start = 0, .b_end = 100 }));
+    try std.testing.expectEqual(true, hsp.is_overlapping(.{ .start_one = 1, .end_one = 2, .start_two = 55, .end_two = 57 }));
+    try std.testing.expectEqual(true, hsp.is_overlapping(.{ .start_one = 2, .end_one = 3, .start_two = 55, .end_two = 57 }));
+    try std.testing.expectEqual(false, hsp.is_overlapping(.{ .start_one = 3, .end_one = 4, .start_two = 55, .end_two = 57 }));
+    try std.testing.expectEqual(true, hsp.is_overlapping(.{ .start_one = 3, .end_one = 4, .start_two = 20, .end_two = 28 }));
+    try std.testing.expectEqual(true, hsp.is_overlapping(.{ .start_one = 3, .end_one = 4, .start_two = 20, .end_two = 25 }));
+    try std.testing.expectEqual(false, hsp.is_overlapping(.{ .start_one = 3, .end_one = 4, .start_two = 20, .end_two = 24 }));
+    try std.testing.expectEqual(true, hsp.is_overlapping(.{ .start_one = 0, .end_one = 100, .start_two = 0, .end_two = 100 }));
 }
 
 test "distance" {
     {
-        const hsp1 = HSP { .a_start = 1, .a_end = 1, .b_start = 25, .b_end = 25 };
-        const hsp2 = HSP { .a_start = 2, .a_end = 2, .b_start = 26, .b_end = 26 };
+        const hsp1 = HSP{ .start_one = 1, .end_one = 1, .start_two = 25, .end_two = 25 };
+        const hsp2 = HSP{ .start_one = 2, .end_one = 2, .start_two = 26, .end_two = 26 };
         try std.testing.expectEqual(@as(usize, 0), hsp1.distance_to(hsp2));
     }
 
     {
-        const hsp1 = HSP { .a_start = 1, .a_end = 2, .b_start = 25, .b_end = 26 };
-        const hsp2 = HSP { .a_start = 5, .a_end = 10, .b_start = 30, .b_end = 35 };
+        const hsp1 = HSP{ .start_one = 1, .end_one = 2, .start_two = 25, .end_two = 26 };
+        const hsp2 = HSP{ .start_one = 5, .end_one = 10, .start_two = 30, .end_two = 35 };
         // x: 2 -> 5 = 2 empty cells
         // y: 26 -> 30 = 3 empty cells
         // => sqrt(2*2 + 3*3)

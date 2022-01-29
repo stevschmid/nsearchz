@@ -109,7 +109,6 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
                 .kmer_offset_by_seq = kmer_offset_by_seq,
                 .kmer_count_by_seq = kmer_count_by_seq,
             };
-
         }
 
         pub fn deinit(self: *Self) void {

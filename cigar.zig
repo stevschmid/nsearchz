@@ -22,6 +22,10 @@ pub const Cigar = struct {
         };
     }
 
+    pub fn isEmpty(self: *Self) bool {
+        return self.entries.items.len == 0;
+    }
+
     pub fn clear(self: *Self) void {
         self.entries.clearRetainingCapacity();
     }
