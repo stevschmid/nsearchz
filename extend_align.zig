@@ -32,7 +32,7 @@ const Cigar = struct {
     pub fn add(self: *Self, op: CigarOp) !void {
         var last_entry = if (self.entries.items.len == 0) null else &self.entries.items[self.entries.items.len - 1];
         if (last_entry == null or last_entry.?.op != op) {
-            try self.entries.append(Entry{.op = op, .count = 1});
+            try self.entries.append(Entry{ .op = op, .count = 1 });
         } else {
             last_entry.?.count += 1;
         }
@@ -47,7 +47,7 @@ const Cigar = struct {
         var buf: [128]u8 = undefined;
 
         for (self.entries.items) |entry| {
-            const xyz = try std.fmt.bufPrint(buf[0..], "{}{c}", .{entry.count, @enumToInt(entry.op)});
+            const xyz = try std.fmt.bufPrint(buf[0..], "{}{c}", .{ entry.count, @enumToInt(entry.op) });
             try str.appendSlice(xyz);
         }
 
@@ -268,13 +268,13 @@ pub fn ExtendAlign(comptime A: type) type {
 
                     // where did we come from?
                     switch (op) {
-                        CigarOp.insertion => { 
+                        CigarOp.insertion => {
                             bx -= 1;
                         },
-                        CigarOp.deletion => { 
+                        CigarOp.deletion => {
                             by -= 1;
                         },
-                        CigarOp.match, CigarOp.mismatch => { 
+                        CigarOp.match, CigarOp.mismatch => {
                             bx -= 1;
                             by -= 1;
                         },
@@ -325,7 +325,7 @@ test "gaps" {
     var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "GAGCGGT");
     defer seq_two.deinit();
 
-    var extend_align = ExtendAlign(alphabet.DNA).init(allocator, ExtendAlignOptions{.gap_open_score = -3});
+    var extend_align = ExtendAlign(alphabet.DNA).init(allocator, ExtendAlignOptions{ .gap_open_score = -3 });
     defer extend_align.deinit();
 
     var cigar = Cigar.init(allocator);
