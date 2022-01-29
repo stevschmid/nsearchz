@@ -100,10 +100,10 @@ pub fn BandedAlign(comptime A: type) type {
             var len_one = seq_one.data.len;
             var len_two = seq_two.data.len;
 
-            const default_end_one = if (dir == BandedAlignDirection.forward) len_one else 0;
+            const default_end_one = if (dir == .forward) len_one else 0;
             var end_one = end_one_ orelse default_end_one;
 
-            const default_end_two = if (dir == BandedAlignDirection.forward) len_two else 0;
+            const default_end_two = if (dir == .forward) len_two else 0;
             var end_two = end_two_ orelse default_end_two;
 
             var start_one = start_one_;
@@ -190,8 +190,8 @@ pub fn BandedAlign(comptime A: type) type {
 
                     if (x > 0) {
                         // diagScore: score at col-1, row-1
-                        pos_one = if (dir == BandedAlignDirection.forward) start_one + x - 1 else start_one - x;
-                        pos_two = if (dir == BandedAlignDirection.forward) start_two + y - 1 else start_two - y;
+                        pos_one = if (dir == .forward) start_one + x - 1 else start_one - x;
+                        pos_two = if (dir == .forward) start_two + y - 1 else start_two - y;
 
                         const letter_one = seq_one.data[pos_one];
                         const letter_two = seq_two.data[pos_two];
@@ -253,6 +253,8 @@ pub fn BandedAlign(comptime A: type) type {
                 var bx = x - 1;
                 var by = y - 1;
 
+                cigar.?.clear();
+
                 while (bx > 0 or by > 0) {
                     const op = ops[by * width + bx];
                     try cigar.?.add(op);
@@ -272,93 +274,167 @@ pub fn BandedAlign(comptime A: type) type {
                     }
                 }
 
+                // make cigar forward facing
+                // we need to potentially append tails below
+                // cigar orientation is determined after these tail additions
                 cigar.?.reverse();
             }
 
             var score = scores[x - 1];
             if (x == width) {
                 // We reached the end of A, emulate going down on B (vertical gaps)
-                const remaining_two = height - y;
+                const num_remaining = height - y;
                 const vertical_gap = &vertical_gaps[x - 1];
-                vertical_gap.openOrExtend(self, score, vertical_gap.is_terminal, remaining_two);
+                vertical_gap.openOrExtend(self, score, vertical_gap.is_terminal, num_remaining);
                 score = vertical_gap.score;
+
+                var pad = num_remaining;
+                while (pad > 0) : (pad -= 1) {
+                    try cigar.?.add(CigarOp.deletion);
+                }
             } else if (y == height) {
                 // We reached the end of B, emulate going down on A (horizontal gaps)
-                const remaining_one = width - x;
-                horizontal_gap.openOrExtend(self, score, horizontal_gap.is_terminal, remaining_one);
+                const num_remaining = width - x;
+                horizontal_gap.openOrExtend(self, score, horizontal_gap.is_terminal, num_remaining);
                 score = horizontal_gap.score;
+
+                var pad = num_remaining;
+                while (pad > 0) : (pad -= 1) {
+                    try cigar.?.add(CigarOp.insertion);
+                }
             }
 
-            _ = cigar;
+            // finally orient cigar
+            if (cigar != null and dir == .backward) {
+                cigar.?.reverse();
+            }
 
             return score;
         }
     };
 }
 
-test "basic" {
+fn testAlign(one: []const u8, two: []const u8, dir: BandedAlignDirection, options: BandedAlignOptions, start_one: usize, start_two: usize, end_one: ?usize, end_two: ?usize, expected_cigar_str: []const u8) !i32 {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "TATAATGTTTACATTGG");
+    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", one);
     defer seq_one.deinit();
 
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "TATAATGACACTGG");
+    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", two);
     defer seq_two.deinit();
 
-    const options = BandedAlignOptions{};
     var banded_align = BandedAlign(alphabet.DNA).init(allocator, options);
     defer banded_align.deinit();
 
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
 
-    var score = try banded_align.process(seq_one, seq_two, BandedAlignDirection.forward, 0, 0, null, null, &cigar);
-
-    // TATAATGTTTACATTGG
-    // |||||||   |||.|||
-    // TATAATG---ACACTGG
-    const MatchScore = 2;
-    const MismatchScore = -4;
-
-    try std.testing.expectEqual(13 * MatchScore + 1 * options.gap_interior_open_score + 3 * options.gap_interior_extend_score + 1 * MismatchScore, score);
+    var score = try banded_align.process(seq_one, seq_two, dir, start_one, start_two, end_one, end_two, &cigar);
 
     var cigar_str = try cigar.toStringAlloc(allocator);
     defer allocator.free(cigar_str);
-    try std.testing.expectEqualStrings("7=3I3=1X3=", cigar_str);
+
+    try std.testing.expectEqualStrings(cigar_str, expected_cigar_str);
+
+    return score;
+}
+
+fn testAlignFwd(one: []const u8, two: []const u8, options: BandedAlignOptions, expected_cigar_str: []const u8) !i32 {
+    return try testAlign(one, two, .forward, options, 0, 0, null, null, expected_cigar_str);
+}
+
+test "basic" {
+    const MatchScore = 2;
+    const MismatchScore = -4;
+    const options = BandedAlignOptions{};
+
+    // // TATAATGTTTACATTGG
+    // // |||||||   |||.|||
+    // // TATAATG---ACACTGG
+    var score = try testAlignFwd("TATAATGTTTACATTGG", "TATAATGACACTGG", options, "7=3I3=1X3=");
+    try std.testing.expectEqual(13 * MatchScore + 1 * options.gap_interior_open_score + 3 * options.gap_interior_extend_score + 1 * MismatchScore, score);
 }
 
 test "gap penalties" {
+    _ = try testAlignFwd("GGATCCTA", "ATCGTA", .{}, "2I3=1X2=");
+    _ = try testAlignFwd("GGATCCTA", "ATCGTA", .{ .gap_terminal_open_score = -40 }, "1X2I2=1X2=");
+}
+
+test "long tails" {
+    _ = try testAlignFwd("ATCGGGGGGGGGGGGGGGGGGGGGGG", "CGG", .{}, "2I3=21I");
+    _ = try testAlignFwd("GGGGTATAAAATTT", "TTTTTTTTGGGGTATAAAA", .{}, "8D11=3I");
+}
+
+test "edge cases" {
+    _ = try testAlignFwd("", "", .{}, "");
+    _ = try testAlignFwd("A", "", .{}, "1I");
+    _ = try testAlignFwd("", "T", .{}, "1D");
+}
+
+test "offsets" {
+    _ = try testAlign("TTTTATCGGTAT", "GGCGGTAT", .forward, .{}, 0, 0, null, null, "4I2X6=");
+    _ = try testAlign("TTTTATCGGTAT", "GGCGGTAT", .forward, .{}, 4, 2, null, null, "2I6=");
+
+    _ = try testAlign("GGATGA", "ATGAA", .backward, .{}, 6, 5, null, null, "2I4=1D");
+    _ = try testAlign("GGATGA", "ATGAA", .backward, .{}, 6, 3, null, null, "2I3=1I");
+}
+
+test "Breaking case when first row is not initialized properly (beyond bandwidth)" {
+    _ = try testAlignFwd("AAAAAAAAAAAAAAA", "CCCCCCAAAAAAAAA", .{}, "6D9=6I");
+    _ = try testAlignFwd("CCCCCCCCCCCCCCC", "CCCCCCAAAAAAAAA", .{}, "9I6=9D");
+}
+
+test "Breaking case when startA >> lenA" {
+    _ = try testAlign("ATGCC", "TTTATGCC", .forward, .{}, 6, 3, null, null, "5D");
+}
+
+test "Breaking case: Improper reset of vertical gap at 0,0" {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "GGATCCTA");
+    var banded_align = BandedAlign(alphabet.DNA).init(allocator, .{});
+    defer banded_align.deinit();
+
+    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "ATGCC");
     defer seq_one.deinit();
 
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "ATCGTA");
-    defer seq_two.deinit();
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
 
+    var score1: i32 = undefined;
+    var score2: i32 = undefined;
+
+    // Align first with fresh alignment cache
     {
-        var banded_align = BandedAlign(alphabet.DNA).init(allocator, BandedAlignOptions{});
-        defer banded_align.deinit();
+        var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "TTTTAGCC");
+        defer seq_two.deinit();
 
-        var cigar = Cigar.init(allocator);
-        defer cigar.deinit();
+        score1 = try banded_align.process(seq_one, seq_two, .forward, 1, 1, null, null, &cigar);
 
-        _ = try banded_align.process(seq_one, seq_two, BandedAlignDirection.forward, 0, 0, null, null, &cigar);
         var cigar_str = try cigar.toStringAlloc(allocator);
         defer allocator.free(cigar_str);
-        try std.testing.expectEqualStrings("2I3=1X2=", cigar_str);
+        try std.testing.expectEqualStrings("1=3X3D", cigar_str);
     }
 
+    // This alignment will set mVerticalGaps[0] to a low value, which will be
+    // extended upon subsequently if we don't reset
     {
-        var banded_align = BandedAlign(alphabet.DNA).init(allocator, BandedAlignOptions{ .gap_terminal_open_score = -40 });
-        defer banded_align.deinit();
+        var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "A");
+        defer seq_two.deinit();
 
-        var cigar = Cigar.init(allocator);
-        defer cigar.deinit();
+        _ = try banded_align.process(seq_one, seq_two, .forward, 0, 0, null, null, &cigar);
+    }
 
-        _ = try banded_align.process(seq_one, seq_two, BandedAlignDirection.forward, 0, 0, null, null, &cigar);
+    // Test with the "leaky" vgap
+    {
+        var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "TTTTAGCC");
+        defer seq_two.deinit();
+
+        score2 = try banded_align.process(seq_one, seq_two, .forward, 1, 1, null, null, &cigar);
+
         var cigar_str = try cigar.toStringAlloc(allocator);
         defer allocator.free(cigar_str);
-        try std.testing.expectEqualStrings("1X2I2=1X2=", cigar_str);
+        try std.testing.expectEqualStrings("1=3X3D", cigar_str);
     }
+
+    try std.testing.expectEqual(score1, score2);
 }

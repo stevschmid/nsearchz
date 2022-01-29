@@ -22,6 +22,10 @@ pub const Cigar = struct {
         };
     }
 
+    pub fn clear(self: *Self) void {
+        self.entries.clearRetainingCapacity();
+    }
+
     pub fn add(self: *Self, op: CigarOp) !void {
         var last_entry = if (self.entries.items.len == 0) null else &self.entries.items[self.entries.items.len - 1];
         if (last_entry == null or last_entry.?.op != op) {
