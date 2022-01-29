@@ -68,6 +68,9 @@ pub fn main() !void {
     var extend_align = ea.ExtendAlign(alphabetChosen).init(allocator, .{});
     defer extend_align.deinit();
 
+    var banded_align = ba.BandedAlign(alphabetChosen).init(allocator, .{});
+    defer banded_align.deinit();
+
     const search_params = SearchParams{};
 
     const default_min_hsp_length = 16;
@@ -113,7 +116,6 @@ pub fn main() !void {
 
         const seq_indices = db.seq_indices[offset..(offset + count)];
         for (seq_indices) |seq_index| {
-            // highscores.add(seq_index,
             hits_by_seq[seq_index] += 1;
             highscores.add(seq_index, hits_by_seq[seq_index]);
         }
@@ -174,66 +176,154 @@ pub fn main() !void {
         // Sort by length
         // Try to find best chain
         // Fill space between with banded align
-        var left_cigar: Cigar = Cigar.init(allocator);
-        defer left_cigar.deinit();
+        var cigar_store = std.AutoHashMap(HSP, Cigar).init(allocator);
+        defer {
+            var it = cigar_store.iterator();
+            while (it.next()) |kv| {
+                kv.value_ptr.*.deinit();
+            }
+            cigar_store.deinit();
+        }
 
-        var right_cigar: Cigar = Cigar.init(allocator);
-        defer right_cigar.deinit();
-
-        var middle_cigar: Cigar = Cigar.init(allocator);
-        defer middle_cigar.deinit();
+        var hsps = std.PriorityDequeue(HSP, void, HSP.lessThanScore).init(allocator, {});
+        defer hsps.deinit();
 
         for (sps.items) |sp| {
-            var start_one = sp.start_one;
-            var end_one = sp.end_one;
+            var left_cigar = Cigar.init(allocator);
+            defer left_cigar.deinit();
 
-            var start_two = sp.start_two;
-            var end_two = sp.end_two;
+            var right_cigar = Cigar.init(allocator);
+            defer right_cigar.deinit();
 
-            var result: ea.ExtendAlignResult = undefined;
+            var left_result = try extend_align.process(query, seq, .backward, sp.start_one, sp.start_two, &left_cigar);
+            var right_result = try extend_align.process(query, seq, .forward, sp.end_one + 1, sp.end_two + 1, &right_cigar);
 
-            result = try extend_align.process(query, seq, .backward, start_one, start_two, &left_cigar);
-            if (!left_cigar.isEmpty()) {
-                start_one = result.pos_one;
-                start_two = result.pos_two;
+            var hsp = HSP{ .start_one = left_result.pos_one, .start_two = left_result.pos_two, .end_one = right_result.pos_one, .end_two = right_result.pos_two };
+
+            if (hsp.length() < min_hsp_length)
+                continue;
+
+            var pos_one = hsp.start_one;
+            var pos_two = hsp.start_two;
+
+            // Construct full hsp (spaced seeds so we cannot assume full match)
+            var score: i32 = undefined;
+
+            score = 0;
+
+            var cigar = Cigar.init(allocator);
+
+            score += left_result.score;
+            try cigar.appendOther(left_cigar);
+
+            while (pos_one <= hsp.end_one and pos_two <= hsp.end_two) {
+                const letter_one = query.data[pos_one];
+                const letter_two = seq.data[pos_two];
+                const op: CigarOp = if (alphabetChosen.match(letter_one, letter_two)) .match else .mismatch;
+
+                score += alphabetChosen.score(letter_one, letter_two);
+                try cigar.add(op);
+
+                pos_one += 1;
+                pos_two += 1;
             }
 
-            result = try extend_align.process(query, seq, .forward, end_one + 1, end_two + 1, &right_cigar);
-            if (!right_cigar.isEmpty()) {
-                end_one = result.pos_one;
-                end_two = result.pos_two;
-            }
+            score += right_result.score;
+            try cigar.appendOther(right_cigar);
 
-            var hsp = HSP{ .start_one = start_one, .end_one = end_one, .start_two = start_two, .end_two = end_two };
-            if (hsp.length() > min_hsp_length) {
-                // Construct hsp cigar (spaced seeds so we cannot assume full match)
-                middle_cigar.clear();
+            // save score
+            hsp.score = score;
 
-                var a = hsp.start_one;
-                var b = hsp.start_two;
+            var cigar_str = try cigar.toStringAlloc(allocator);
+            defer allocator.free(cigar_str);
+            std.debug.print("Save {}: {s}\n", .{ hsp.score, cigar_str });
 
-                var middle_score: i32 = 0;
-                while (a <= hsp.end_one and b <= hsp.end_two) : ({
-                    a += 1;
-                    b += 1;
-                }) {
-                    const letter_one = query.data[a];
-                    const letter_two = seq.data[a];
+            // save cigar (store will free)
+            try cigar_store.put(hsp, cigar);
 
-                    const match = alphabetChosen.match(letter_one, letter_two);
-                    const score = alphabetChosen.score(letter_one, letter_two);
+            // save final hsp
+            try hsps.add(hsp);
+        }
 
-                    const op = if (match) CigarOp.match else CigarOp.mismatch;
+        // Greedy join HSPs if close
+        var chain = std.PriorityQueue(HSP, void, HSP.lessThanPos).init(allocator, {});
+        defer chain.deinit();
 
-                    try middle_cigar.add(op);
-                    middle_score += score;
+        // Go through HSP (highest first)
+        while (hsps.removeMaxOrNull()) |hsp| {
+            var it = chain.iterator();
+
+            var is_overlapping: bool = while (it.next()) |existing_hsp| {
+                if (hsp.is_overlapping(existing_hsp))
+                    break true;
+            } else false;
+
+            if (is_overlapping)
+                continue;
+
+            // check if hsp joinable
+            it.reset();
+            var is_joinable: bool = while (it.next()) |existing_hsp| {
+                if (hsp.distance_to(existing_hsp) <= max_hsp_join_distance)
+                    break true;
+            } else false;
+
+            if (!is_joinable and chain.len > 0)
+                continue;
+
+            try chain.add(hsp);
+        }
+
+        std.debug.print("Chain size {}\n", .{chain.len});
+
+        // Banded align between chain
+        var accept = false;
+
+        if (chain.len > 0) {
+            const first_hsp = &chain.items[0];
+            const last_hsp = &chain.items[chain.len - 1];
+
+            var final_cigar = Cigar.init(allocator);
+            defer final_cigar.deinit();
+            var cigar = Cigar.init(allocator);
+            defer cigar.deinit();
+
+            // Align first HSP's start to whole sequences begin
+            _ = try banded_align.process(query, seq, .backward, first_hsp.start_one, first_hsp.start_two, null, null, &cigar);
+            try final_cigar.appendOther(cigar);
+
+            var cursor: usize = 0;
+            while (cursor < chain.len) : (cursor += 1) {
+                const current_hsp = &chain.items[cursor];
+                const current_cigar = cigar_store.get(current_hsp.*).?;
+                try final_cigar.appendOther(current_cigar);
+
+                if (cursor + 1 < chain.len) {
+                    const next_hsp = &chain.items[cursor + 1];
+                    _ = try banded_align.process(query, seq, .forward, current_hsp.end_one + 1, current_hsp.end_two + 1, next_hsp.start_one, next_hsp.start_two, &cigar);
+                    try final_cigar.appendOther(cigar);
                 }
+            }
 
-                hsp.score = left_score + middle_score + right_score;
+            // Align last HSP's end to whole sequences end
+            _ = try banded_align.process(query, seq, .forward, last_hsp.end_one + 1, last_hsp.end_two + 1, null, null, &cigar);
+            try final_cigar.appendOther(cigar);
+
+            var cigar_str = try final_cigar.toStringAlloc(allocator);
+            defer allocator.free(cigar_str);
+
+            std.debug.print("Cigar {s}\n", .{cigar_str});
+            std.debug.print("Identity {d:.2}\n\n", .{final_cigar.identity()});
+
+            if (final_cigar.identity() >= search_params.min_identity) {
+                accept = true;
             }
         }
 
-        _ = left_cigar;
-        _ = right_cigar;
+        if (accept) {
+            std.debug.print("HIT!\n", .{});
+        } else {
+            std.debug.print("MISS!\n", .{});
+        }
     } // each candidate
 }
