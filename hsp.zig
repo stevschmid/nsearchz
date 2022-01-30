@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const Cigar = @import("cigar.zig").Cigar;
+
 pub const HSP = struct {
     const Self = @This();
 
@@ -8,8 +10,6 @@ pub const HSP = struct {
 
     start_two: usize,
     end_two: usize,
-
-    score: i32 = 0,
 
     pub fn length(self: Self) usize {
         return std.math.max(self.end_one - self.start_one, self.end_two - self.start_two) + 1;
@@ -35,23 +35,6 @@ pub const HSP = struct {
             dy -= 1;
 
         return std.math.sqrt(dx * dx + dy * dy);
-    }
-
-    pub fn lessThanScore(context: void, left: HSP, right: HSP) std.math.Order {
-        _ = context;
-        return std.math.order(left.score, right.score);
-    }
-
-    pub fn lessThanPos(context: void, left: HSP, right: HSP) std.math.Order {
-        _ = context;
-
-        if (left.start_one == right.start_one and left.start_two == right.start_two) {
-            return .eq;
-        } else if (left.start_one < right.start_one and left.start_two < right.start_two) {
-            return .lt;
-        } else {
-            return .gt;
-        }
     }
 };
 
@@ -93,18 +76,18 @@ test "distance" {
     }
 }
 
-test "highscore order" {
-    const allocator = std.testing.allocator;
-    var queue = std.PriorityDequeue(HSP, void, HSP.lessThanScore).init(allocator, {});
-    defer queue.deinit();
+// test "highscore order" {
+//     const allocator = std.testing.allocator;
+//     var queue = std.PriorityDequeue(HSP, void, HSP.lessThanScore).init(allocator, {});
+//     defer queue.deinit();
 
-    try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = 55 });
-    try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = 11 });
-    try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = 155 });
-    try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = -2 });
+//     try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = 55 });
+//     try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = 11 });
+//     try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = 155 });
+//     try queue.add(.{ .start_one = 1, .end_one = 1, .start_two = 1, .end_two = 1, .score = -2 });
 
-    try std.testing.expectEqual(@as(i32, 155), queue.removeMax().score);
-    try std.testing.expectEqual(@as(i32, 55), queue.removeMax().score);
-    try std.testing.expectEqual(@as(i32, 11), queue.removeMax().score);
-    try std.testing.expectEqual(@as(i32, -2), queue.removeMax().score);
-}
+//     try std.testing.expectEqual(@as(i32, 155), queue.removeMax().score);
+//     try std.testing.expectEqual(@as(i32, 55), queue.removeMax().score);
+//     try std.testing.expectEqual(@as(i32, 11), queue.removeMax().score);
+//     try std.testing.expectEqual(@as(i32, -2), queue.removeMax().score);
+// }

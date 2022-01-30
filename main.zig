@@ -16,7 +16,6 @@ const SequenceStore = @import("sequence.zig").SequenceStore;
 const FastaReader = @import("fasta_reader.zig").FastaReader;
 const Database = @import("database.zig").Database;
 const Highscores = @import("highscores.zig").Highscores;
-const HSP = @import("hsp.zig").HSP;
 
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
