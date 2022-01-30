@@ -54,12 +54,14 @@ pub fn main() !void {
         return error.InvalidArgs;
     });
     defer allocator.free(file);
-    try reader.readFile(file);
+
+    var sequences = try reader.readFile(file);
+    defer for (sequences) |*seq| seq.deinit();
 
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     bench_start = std.time.milliTimestamp();
-    var db = try Database(alphabet.DNA, 8).init(allocator, reader.sequences.items);
+    var db = try Database(alphabet.DNA, 8).init(allocator, sequences.items);
     defer db.deinit();
 
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});

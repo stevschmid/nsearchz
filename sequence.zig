@@ -10,20 +10,21 @@ pub fn Sequence(comptime A: type) type {
         identifier: []const u8,
         data: []const u8,
 
-        pub fn init(allocator: std.mem.Allocator, identifier: []const u8, data: []const u8) !Self {
-            var sanitizedData = try utils.dup(u8, allocator, data);
+        pub fn init(allocator: std.mem.Allocator, identifier_: []const u8, data_: []const u8) !Self {
+            var identifier = try utils.dup(u8, allocator, identifier_);
+            var data = try utils.dup(u8, allocator, data_);
 
             // convert lower case to upper case
-            for (sanitizedData) |*letter| {
+            for (data) |*letter| {
                 if (letter.* >= 'a' and letter.* <= 'z') {
                     letter.* -= ('a' - 'A');
                 }
             }
 
-            return Self {
+            return Self{
                 .allocator = allocator,
-                .identifier = try utils.dup(u8, allocator, identifier),
-                .data = sanitizedData,
+                .identifier = identifier,
+                .data = data,
             };
         }
 
@@ -42,16 +43,17 @@ pub fn Sequence(comptime A: type) type {
             } else true;
         }
 
-        pub fn complementAlloc(self: *const Self) !Self {
-            var compl_data = try utils.dup(u8, self.allocator, self.data);
+        pub fn complementAlloc(allocator: std.mem.Allocator, self: *const Self) !Self {
+            var compl_identifier = try utils.dup(u8, allocator, self.identifier);
+            var compl_data = try utils.dup(u8, allocator, self.data);
 
             for (compl_data) |*letter| {
                 letter.* = A.complement(letter.*);
             }
 
-            return Sequence(A) {
-                .allocator = self.allocator,
-                .identifier = try utils.dup(u8, self.allocator, self.identifier),
+            return Sequence(A){
+                .allocator = .allocator,
+                .identifier = compl_identifier,
                 .data = compl_data,
             };
         }
