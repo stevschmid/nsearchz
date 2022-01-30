@@ -317,11 +317,8 @@ pub fn BandedAlign(comptime A: type) type {
 fn testAlign(one: []const u8, two: []const u8, dir: BandedAlignDirection, options: BandedAlignOptions, start_one: usize, start_two: usize, end_one: ?usize, end_two: ?usize, expected_cigar_str: []const u8) !i32 {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", one);
-    defer seq_one.deinit();
-
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", two);
-    defer seq_two.deinit();
+    var seq_one = Sequence(alphabet.DNA){ .identifier = "", .data = one };
+    var seq_two = Sequence(alphabet.DNA){ .identifier = "", .data = two };
 
     var banded_align = BandedAlign(alphabet.DNA).init(allocator, options);
     defer banded_align.deinit();
@@ -394,8 +391,7 @@ test "Breaking case: Improper reset of vertical gap at 0,0" {
     var banded_align = BandedAlign(alphabet.DNA).init(allocator, .{});
     defer banded_align.deinit();
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "ATGCC");
-    defer seq_one.deinit();
+    var seq_one = Sequence(alphabet.DNA){ .identifier = "", .data = "ATGCC" };
 
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
@@ -405,8 +401,7 @@ test "Breaking case: Improper reset of vertical gap at 0,0" {
 
     // Align first with fresh alignment cache
     {
-        var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "TTTTAGCC");
-        defer seq_two.deinit();
+        var seq_two = Sequence(alphabet.DNA){ .identifier = "", .data = "TTTTAGCC" };
 
         score1 = try banded_align.process(seq_one, seq_two, .forward, 1, 1, null, null, &cigar);
 
@@ -418,16 +413,14 @@ test "Breaking case: Improper reset of vertical gap at 0,0" {
     // This alignment will set mVerticalGaps[0] to a low value, which will be
     // extended upon subsequently if we don't reset
     {
-        var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "A");
-        defer seq_two.deinit();
+        var seq_two = Sequence(alphabet.DNA){ .identifier = "", .data = "A" };
 
         _ = try banded_align.process(seq_one, seq_two, .forward, 0, 0, null, null, &cigar);
     }
 
     // Test with the "leaky" vgap
     {
-        var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "TTTTAGCC");
-        defer seq_two.deinit();
+        var seq_two = Sequence(alphabet.DNA){ .identifier = "", .data = "TTTTAGCC" };
 
         score2 = try banded_align.process(seq_one, seq_two, .forward, 1, 1, null, null, &cigar);
 

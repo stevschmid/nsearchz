@@ -247,11 +247,8 @@ pub fn ExtendAlign(comptime A: type) type {
 test "forward" {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "GATTGCGGGG");
-    defer seq_one.deinit();
-
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "GAGCGGT");
-    defer seq_two.deinit();
+    var seq_one = Sequence(alphabet.DNA){ .identifier = "one", .data = "GATTGCGGGG" };
+    var seq_two = Sequence(alphabet.DNA){ .identifier = "two", .data = "GAGCGGT" };
 
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, ExtendAlignOptions{});
     defer extend_align.deinit();
@@ -268,11 +265,8 @@ test "forward" {
 test "gaps" {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "GATTGCGGGG");
-    defer seq_one.deinit();
-
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "GAGCGGT");
-    defer seq_two.deinit();
+    var seq_one = Sequence(alphabet.DNA){ .identifier = "one", .data = "GATTGCGGGG" };
+    var seq_two = Sequence(alphabet.DNA){ .identifier = "two", .data = "GAGCGGT" };
 
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, .{ .gap_open_score = -3 });
     defer extend_align.deinit();
@@ -291,11 +285,8 @@ test "gaps" {
 test "forward extend" {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "ATCGG");
-    defer seq_one.deinit();
-
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "ATCGT");
-    defer seq_two.deinit();
+    var seq_one = Sequence(alphabet.DNA){ .identifier = "one", .data = "ATCGG" };
+    var seq_two = Sequence(alphabet.DNA){ .identifier = "two", .data = "ATCGT" };
 
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, .{});
     defer extend_align.deinit();
@@ -346,11 +337,8 @@ test "forward extend" {
 test "backward" {
     const allocator = std.testing.allocator;
 
-    var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "ATCGGTTG");
-    defer seq_one.deinit();
-
-    var seq_two = try Sequence(alphabet.DNA).init(allocator, "two", "TCGGTAT");
-    defer seq_two.deinit();
+    var seq_one = Sequence(alphabet.DNA){ .identifier = "one", .data = "ATCGGTTG" };
+    var seq_two = Sequence(alphabet.DNA){ .identifier = "two", .data = "TCGGTAT" };
 
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, .{});
     defer extend_align.deinit();

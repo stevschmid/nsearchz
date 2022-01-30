@@ -6,7 +6,7 @@ const Sequence = @import("sequence.zig").Sequence;
 pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
     return struct {
         const Self = @This();
-        const kmerInfo = bio.kmer.KmerInfo(A, KmerLength);
+        pub const kmerInfo = bio.kmer.KmerInfo(A, KmerLength);
 
         allocator: std.mem.Allocator,
         sequences: []const Sequence(A),
