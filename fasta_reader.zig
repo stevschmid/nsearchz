@@ -1,50 +1,20 @@
 const std = @import("std");
 const Sequence = @import("sequence.zig").Sequence;
+const SequenceStore = @import("sequence.zig").SequenceStore;
 
-pub fn SequenceList(comptime A: type) type {
-    return struct {
-        const Self = @This();
-
-        allocator: std.mem.Allocator,
-        list: std.ArrayList(Sequence(A)),
-
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return Self{
-                .allocator = allocator,
-                .list = std.ArrayList(Sequence(A)).init(allocator),
-            };
-        }
-
-        pub fn append(self: *Self, identifier: []const u8, data: []const u8) !void {
-            var sequence = try Sequence(A).init(self.allocator, identifier, data);
-            errdefer sequence.deinit();
-
-            try self.list.append(sequence);
-        }
-
-        pub fn deinit(self: *Self) void {
-            for (self.list.items) |*seq|
-                seq.deinit();
-
-            self.list.deinit();
-        }
-    };
-}
+const utils = @import("utils.zig");
 
 pub fn FastaReader(comptime A: type) type {
     return struct {
-        pub fn parseAlloc(allocator: std.mem.Allocator, reader: anytype) !SequenceList(A) {
+        pub fn parse(reader: anytype, sequences: *SequenceStore(A)) !void {
             var buffered_reader = std.io.bufferedReader(reader);
             var stream = buffered_reader.reader();
 
-            var identifier = std.ArrayList(u8).init(allocator);
+            var identifier = std.ArrayList(u8).init(sequences.allocator);
             defer identifier.deinit();
 
-            var data = std.ArrayList(u8).init(allocator);
+            var data = std.ArrayList(u8).init(sequences.allocator);
             defer data.deinit();
-
-            var sequences = SequenceList(A).init(allocator);
-            errdefer sequences.deinit();
 
             var buffer: [4096]u8 = undefined;
             while (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
@@ -68,6 +38,13 @@ pub fn FastaReader(comptime A: type) type {
                         // ignore comment
                     },
                     else => {
+                        // ensure upper case
+                        for (line) |*letter| {
+                            if (letter.* >= 'a' and letter.* <= 'z') {
+                                letter.* -= ('a' - 'A');
+                            }
+                        }
+
                         try data.appendSlice(line);
                     },
                 }
@@ -77,16 +54,14 @@ pub fn FastaReader(comptime A: type) type {
             if (data.items.len > 0) {
                 try sequences.append(identifier.items, data.items);
             }
-
-            return sequences;
         }
 
-        pub fn parseFileAlloc(allocator: std.mem.Allocator, path: []const u8) ![]Sequence(A) {
+        pub fn readFile(path: []const u8, sequences: *SequenceStore(A)) !void {
             const dir: std.fs.Dir = std.fs.cwd();
             const file: std.fs.File = try dir.openFile(path, .{ .read = true });
             defer file.close();
 
-            return try parseAlloc(allocator, file.reader());
+            return try parse(file.reader(), sequences);
         }
     };
 }
@@ -110,18 +85,20 @@ test "reads fasta" {
         \\actgc
     ;
 
+    var store = SequenceStore(DNA).init(allocator);
+    defer store.deinit();
+
     var source = std.io.StreamSource{ .const_buffer = std.io.fixedBufferStream(fasta) };
-    var sequences = try FastaReader(DNA).parseAlloc(allocator, source.reader());
-    defer sequences.deinit();
+    try FastaReader(DNA).parse(source.reader(), &store);
 
-    try std.testing.expectEqual(@as(usize, 3), sequences.list.items.len);
+    try std.testing.expectEqual(@as(usize, 3), store.sequences().len);
 
-    // try std.testing.expectEqualStrings("Seq1", sequences[0].identifier);
-    // try std.testing.expectEqualStrings("TGGCGAAATTGGG", sequences[0].data);
+    try std.testing.expectEqualStrings("Seq1", store.sequences()[0].identifier);
+    try std.testing.expectEqualStrings("TGGCGAAATTGGG", store.sequences()[0].data);
 
-    // try std.testing.expectEqualStrings("Seq2", sequences[1].identifier);
-    // try std.testing.expectEqualStrings("TTTTTCAGTC", sequences[1].data);
+    try std.testing.expectEqualStrings("Seq2", store.sequences()[1].identifier);
+    try std.testing.expectEqualStrings("TTTTTCAGTC", store.sequences()[1].data);
 
-    // try std.testing.expectEqualStrings("Seq3", sequences[2].identifier);
-    // try std.testing.expectEqualStrings("ACTGC", sequences[2].data);
+    try std.testing.expectEqualStrings("Seq3", store.sequences()[2].identifier);
+    try std.testing.expectEqualStrings("ACTGC", store.sequences()[2].data);
 }

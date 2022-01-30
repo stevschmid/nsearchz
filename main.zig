@@ -11,6 +11,8 @@ const Cigar = @import("cigar.zig").Cigar;
 const CigarOp = @import("cigar.zig").CigarOp;
 
 const Sequence = @import("sequence.zig").Sequence;
+const SequenceStore = @import("sequence.zig").SequenceStore;
+
 const FastaReader = @import("fasta_reader.zig").FastaReader;
 const Database = @import("database.zig").Database;
 const Highscores = @import("highscores.zig").Highscores;
@@ -41,8 +43,6 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     var bench_start = std.time.milliTimestamp();
-    var reader = FastaReader(alphabetChosen).init(allocator);
-    defer reader.deinit();
 
     var arg_it = std.process.args();
 
@@ -55,13 +55,15 @@ pub fn main() !void {
     });
     defer allocator.free(file);
 
-    var sequences = try reader.readFile(file);
-    defer for (sequences) |*seq| seq.deinit();
+    var seq_store = SequenceStore(alphabetChosen).init(allocator);
+    defer seq_store.deinit();
+
+    try FastaReader(alphabetChosen).readFile(file, &seq_store);
 
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     bench_start = std.time.milliTimestamp();
-    var db = try Database(alphabet.DNA, 8).init(allocator, sequences.items);
+    var db = try Database(alphabet.DNA, 8).init(allocator, seq_store.sequences());
     defer db.deinit();
 
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
@@ -78,9 +80,7 @@ pub fn main() !void {
     const default_min_hsp_length = 16;
     const max_hsp_join_distance = 16;
 
-    var query = try Sequence(alphabetChosen).init(allocator, "test", "AAAGCGCGAGTGAACGCAA");
-    defer query.deinit();
-
+    var query = Sequence(alphabetChosen){ .identifier = "test", .data = "AAAGCGCGAGTGAACGCAA" };
     const min_hsp_length = std.math.min(default_min_hsp_length, query.data.len / 2);
 
     _ = min_hsp_length;
