@@ -116,6 +116,9 @@ pub fn Search(comptime DatabaseType: type) type {
             var sps = std.ArrayList(HSP).init(self.allocator);
             defer sps.deinit();
 
+            var num_hits: usize = 0;
+            var num_rejects: usize = 0;
+
             const top_to_bottom = highscores.top_to_bottom();
             for (top_to_bottom) |candidate| {
                 const seq_id = candidate.id;
@@ -159,16 +162,6 @@ pub fn Search(comptime DatabaseType: type) type {
                 // Sort by length
                 // Try to find best chain
                 // Fill space between with banded align
-                // var hsps = std.PriorityDequeue(HSP, void, HSP.lessThanScore).init(self.allocator, {});
-                // defer {
-                //     var it = hsps.iterator();
-                //     while (it.next()) |*hsp| {
-                //         if (hsp.cigar != null) {
-                //             hsp.cigar.?.deinit();
-                //         }
-                //     }
-                //     hsps.deinit();
-                // }
 
                 var align_parts = std.ArrayList(AlignPart).init(self.allocator);
                 defer {
@@ -203,7 +196,8 @@ pub fn Search(comptime DatabaseType: type) type {
                     var cigar = Cigar.init(self.allocator);
                     try cigar.appendOther(left_cigar);
 
-                    while (pos_one <= hsp.end_one and pos_two <= hsp.end_two) {
+                    // go until we hit start of SP (not HSP)
+                    while (pos_one <= sp.end_one and pos_two <= sp.end_two) {
                         const letter_one = query.data[pos_one];
                         const letter_two = seq.data[pos_two];
                         const op: CigarOp = if (A.match(letter_one, letter_two)) .match else .mismatch;
@@ -289,19 +283,19 @@ pub fn Search(comptime DatabaseType: type) type {
                     var cigar_str = try final_cigar.toStringAlloc(self.allocator);
                     defer self.allocator.free(cigar_str);
 
-                    std.debug.print("Cigar {s}\n", .{cigar_str});
-                    std.debug.print("Identity {d:.2}\n\n", .{final_cigar.identity()});
-
                     if (final_cigar.identity() >= self.options.min_identity) {
                         accept = true;
                     }
                 }
 
                 if (accept) {
-                    std.debug.print("HIT!\n", .{});
+                    num_hits += 1;
                 } else {
-                    std.debug.print("MISS!\n", .{});
+                    num_rejects += 1;
                 }
+
+                if (num_hits >= self.options.max_accepts or num_rejects >= self.options.max_rejects)
+                    break;
             } // each candidate
         }
 
@@ -317,7 +311,10 @@ pub fn Search(comptime DatabaseType: type) type {
 test "check" {
     const allocator = std.testing.allocator;
 
-    const sequences = [_]Sequence(alphabet.DNA){.{ .identifier = "DB", .data = "ATCGTGAGACGATGCAAAAAATTGAGA" }};
+    const sequences = [_]Sequence(alphabet.DNA){
+        .{ .identifier = "DB1", .data = "ATCGTGAGACGATGCAAAAAATTGAGA" },
+        .{ .identifier = "DB2", .data = "GTCCGACGCAATAAACTATATGGGG" },
+    };
     const query = Sequence(alphabet.DNA){ .identifier = "Query", .data = "GGTGAGACGACGCAATAAATTGAGA" };
 
     const databaseType = Database(alphabet.DNA, 8);
