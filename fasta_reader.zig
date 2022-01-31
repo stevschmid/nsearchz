@@ -1,12 +1,12 @@
 const std = @import("std");
 const Sequence = @import("sequence.zig").Sequence;
-const SequenceStore = @import("sequence.zig").SequenceStore;
+const SequenceList = @import("sequence.zig").SequenceList;
 
 const utils = @import("utils.zig");
 
 pub fn FastaReader(comptime A: type) type {
     return struct {
-        pub fn parse(reader: anytype, sequences: *SequenceStore(A)) !void {
+        pub fn parse(reader: anytype, sequences: *SequenceList(A)) !void {
             var buffered_reader = std.io.bufferedReader(reader);
             var stream = buffered_reader.reader();
 
@@ -56,7 +56,7 @@ pub fn FastaReader(comptime A: type) type {
             }
         }
 
-        pub fn readFile(path: []const u8, sequences: *SequenceStore(A)) !void {
+        pub fn readFile(path: []const u8, sequences: *SequenceList(A)) !void {
             const dir: std.fs.Dir = std.fs.cwd();
             const file: std.fs.File = try dir.openFile(path, .{ .read = true });
             defer file.close();
@@ -85,20 +85,20 @@ test "reads fasta" {
         \\actgc
     ;
 
-    var store = SequenceStore(DNA).init(allocator);
-    defer store.deinit();
+    var sequences = SequenceList(DNA).init(allocator);
+    defer sequences.deinit();
 
     var source = std.io.StreamSource{ .const_buffer = std.io.fixedBufferStream(fasta) };
-    try FastaReader(DNA).parse(source.reader(), &store);
+    try FastaReader(DNA).parse(source.reader(), &sequences);
 
-    try std.testing.expectEqual(@as(usize, 3), store.sequences().len);
+    try std.testing.expectEqual(@as(usize, 3), sequences.list.items.len);
 
-    try std.testing.expectEqualStrings("Seq1", store.sequences()[0].identifier);
-    try std.testing.expectEqualStrings("TGGCGAAATTGGG", store.sequences()[0].data);
+    try std.testing.expectEqualStrings("Seq1", sequences.list.items[0].identifier);
+    try std.testing.expectEqualStrings("TGGCGAAATTGGG", sequences.list.items[0].data);
 
-    try std.testing.expectEqualStrings("Seq2", store.sequences()[1].identifier);
-    try std.testing.expectEqualStrings("TTTTTCAGTC", store.sequences()[1].data);
+    try std.testing.expectEqualStrings("Seq2", sequences.list.items[1].identifier);
+    try std.testing.expectEqualStrings("TTTTTCAGTC", sequences.list.items[1].data);
 
-    try std.testing.expectEqualStrings("Seq3", store.sequences()[2].identifier);
-    try std.testing.expectEqualStrings("ACTGC", store.sequences()[2].data);
+    try std.testing.expectEqualStrings("Seq3", sequences.list.items[2].identifier);
+    try std.testing.expectEqualStrings("ACTGC", sequences.list.items[2].data);
 }

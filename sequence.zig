@@ -5,10 +5,24 @@ pub fn Sequence(comptime A: type) type {
     return struct {
         const Self = @This();
 
-        identifier: []const u8,
-        data: []const u8,
+        allocator: std.mem.Allocator,
+        identifier: []u8,
+        data: []u8,
 
-        pub fn matches(self: *const Self, other: Self) bool {
+        pub fn init(allocator: std.mem.Allocator, identifier: []const u8, data: []const u8) !Self {
+            return Self{
+                .allocator = allocator,
+                .identifier = try utils.dup(u8, allocator, identifier),
+                .data = try utils.dup(u8, allocator, data),
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.allocator.free(self.identifier);
+            self.allocator.free(self.data);
+        }
+
+        pub fn matches(self: Self, other: Self) bool {
             if (self.data.len != other.data.len) {
                 return false;
             }
@@ -18,34 +32,29 @@ pub fn Sequence(comptime A: type) type {
             } else true;
         }
 
-        pub fn complementAlloc(allocator: std.mem.Allocator, self: *const Self) !Self {
-            var compl_identifier = try utils.dup(u8, allocator, self.identifier);
-            var compl_data = try utils.dup(u8, allocator, self.data);
-
-            for (compl_data) |*letter| {
-                letter.* = A.complement(letter.*);
+        pub fn complement(self: *Self) void {
+            for (self.data) |*letter| {
+                self.letter.* = A.complement(letter.*);
             }
+        }
 
-            return Sequence(A){
-                .allocator = .allocator,
-                .identifier = compl_identifier,
-                .data = compl_data,
-            };
+        pub fn reverse(self: Self) void {
+            std.mem.reverse(u8, self.data);
         }
     };
 }
 
-pub fn SequenceStore(comptime A: type) type {
+pub fn SequenceList(comptime A: type) type {
     return struct {
         const Self = @This();
 
         allocator: std.mem.Allocator,
-        store: std.ArrayList(Sequence(A)),
+        list: std.ArrayList(Sequence(A)),
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return Self{
                 .allocator = allocator,
-                .store = std.ArrayList(Sequence(A)).init(allocator),
+                .list = std.ArrayList(Sequence(A)).init(allocator),
             };
         }
 
@@ -53,26 +62,16 @@ pub fn SequenceStore(comptime A: type) type {
             return try self.append(seq.identifier, seq.data);
         }
 
-        pub fn append(self: *Self, identifier_: []const u8, data_: []const u8) !void {
-            const identifier = try utils.dup(u8, self.allocator, identifier_);
-            const data = try utils.dup(u8, self.allocator, data_);
-
-            const sequence: Sequence(A) = .{ .identifier = identifier, .data = data };
-
-            try self.store.append(sequence);
+        pub fn append(self: *Self, identifier: []const u8, data: []const u8) !void {
+            const seq = try Sequence(A).init(self.allocator, identifier, data);
+            try self.list.append(seq);
         }
 
         pub fn deinit(self: *Self) void {
-            for (self.store.items) |*seq| {
-                self.allocator.free(seq.identifier);
-                self.allocator.free(seq.data);
-            }
+            for (self.list.items) |*seq|
+                seq.deinit();
 
-            self.store.deinit();
-        }
-
-        pub fn sequences(self: *Self) []Sequence(A) {
-            return self.store.items;
+            self.list.deinit();
         }
     };
 }
