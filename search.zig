@@ -3,6 +3,7 @@ const alphabet = @import("bio/bio.zig").alphabet;
 
 const Database = @import("database.zig").Database;
 const Sequence = @import("sequence.zig").Sequence;
+const SequenceStore = @import("sequence.zig").SequenceStore;
 const Highscores = @import("highscores.zig").Highscores;
 
 const HSP = @import("hsp.zig").HSP;
@@ -71,7 +72,7 @@ pub fn Search(comptime DatabaseType: type) type {
             };
         }
 
-        pub fn process(self: *Self, query: Sequence(A)) !void {
+        pub fn process(self: *Self, query: Sequence(A), hits: *SequenceStore(A)) !void {
             const min_hsp_length = std.math.min(DefaultMinHspLength, query.data.len / 2);
             const max_hsp_join_distance = DefaultMaxHSPJoinDistance;
             _ = min_hsp_length;
@@ -289,6 +290,8 @@ pub fn Search(comptime DatabaseType: type) type {
                 }
 
                 if (accept) {
+                    try hits.appendSeq(seq);
+
                     num_hits += 1;
                 } else {
                     num_rejects += 1;
@@ -321,7 +324,44 @@ test "check" {
     var database = try databaseType.init(allocator, &sequences);
     defer database.deinit();
 
-    var search = try Search(databaseType).init(allocator, database, .{});
-    try search.process(query);
-    defer search.deinit();
+    {
+        var hits = SequenceStore(alphabet.DNA).init(allocator);
+        defer hits.deinit();
+
+        var search = try Search(databaseType).init(allocator, database, .{});
+        defer search.deinit();
+
+        try search.process(query, &hits);
+
+        try std.testing.expectEqual(@as(usize, 1), hits.sequences().len);
+        try std.testing.expectEqualStrings("DB1", hits.sequences()[0].identifier);
+    }
+
+    // try accepts 2, other sequence is still low
+    {
+        var hits = SequenceStore(alphabet.DNA).init(allocator);
+        defer hits.deinit();
+
+        var search = try Search(databaseType).init(allocator, database, .{ .max_accepts = 2 });
+        defer search.deinit();
+
+        try search.process(query, &hits);
+
+        // still 1
+        try std.testing.expectEqual(@as(usize, 1), hits.sequences().len);
+    }
+
+    // accept two, but lower identity threshold
+    {
+        var hits = SequenceStore(alphabet.DNA).init(allocator);
+        defer hits.deinit();
+
+        var search = try Search(databaseType).init(allocator, database, .{ .max_accepts = 2, .min_identity = 0.5 });
+        defer search.deinit();
+
+        try search.process(query, &hits);
+
+        // now 2
+        try std.testing.expectEqual(@as(usize, 2), hits.sequences().len);
+    }
 }

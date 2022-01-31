@@ -49,6 +49,10 @@ pub fn SequenceStore(comptime A: type) type {
             };
         }
 
+        pub fn appendSeq(self: *Self, seq: Sequence(A)) !void {
+            return try self.append(seq.identifier, seq.data);
+        }
+
         pub fn append(self: *Self, identifier_: []const u8, data_: []const u8) !void {
             const identifier = try utils.dup(u8, self.allocator, identifier_);
             const data = try utils.dup(u8, self.allocator, data_);
