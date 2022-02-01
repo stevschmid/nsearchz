@@ -14,6 +14,8 @@ const bio = @import("bio/bio.zig");
 const ea = @import("extend_align.zig");
 const ba = @import("banded_align.zig");
 
+const utils = @import("utils.zig");
+
 const SearchOptions = struct {
     max_accepts: u32 = 1,
     max_rejects: u32 = 16,
@@ -21,8 +23,56 @@ const SearchOptions = struct {
 };
 
 const SearchHit = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
     db_seq_id: usize,
     cigar: Cigar,
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .allocator = allocator,
+            .cigar = Cigar.init(allocator),
+            .db_seq_id = undefined,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.cigar.deinit();
+    }
+};
+const SearchHitList = utils.ArrayListWithDeinit(SearchHit);
+
+const AlignPart = struct {
+    const Self = @This();
+
+    allocator: std.mem.Allocator,
+    hsp: HSP,
+    score: i32,
+    cigar: Cigar,
+
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .allocator = allocator,
+            .cigar = Cigar.init(allocator),
+            .hsp = undefined,
+            .score = undefined,
+        };
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.cigar.deinit();
+    }
+
+    fn cmpScoreDesc(context: void, left: AlignPart, right: AlignPart) bool {
+        _ = context;
+        return (left.score > right.score);
+    }
+
+    fn cmpPosAsc(context: void, left: AlignPart, right: AlignPart) bool {
+        _ = context;
+        return (left.hsp.start_one < right.hsp.start_one and left.hsp.start_two < right.hsp.start_two);
+    }
 };
 
 pub fn Search(comptime DatabaseType: type) type {
@@ -42,22 +92,6 @@ pub fn Search(comptime DatabaseType: type) type {
         kmers: std.ArrayList(kmerInfo.KmerType),
         hits_by_seq: []usize,
 
-        const AlignPart = struct {
-            hsp: HSP,
-            score: i32,
-            cigar: Cigar,
-
-            fn cmpScoreDesc(context: void, left: AlignPart, right: AlignPart) bool {
-                _ = context;
-                return (left.score > right.score);
-            }
-
-            fn cmpPosAsc(context: void, left: AlignPart, right: AlignPart) bool {
-                _ = context;
-                return (left.hsp.start_one < right.hsp.start_one and left.hsp.start_two < right.hsp.start_two);
-            }
-        };
-
         pub fn init(allocator: std.mem.Allocator, database: *DatabaseType, options: SearchOptions) !Self {
             return Self{
                 .allocator = allocator,
@@ -70,15 +104,13 @@ pub fn Search(comptime DatabaseType: type) type {
             };
         }
 
-        pub fn search(self: *Self, query: Sequence(A), allocator: std.mem.Allocator) ![]SearchHit {
+        pub fn search(self: *Self, query: Sequence(A), hits: *SearchHitList) !void {
             const min_hsp_length = std.math.min(DefaultMinHspLength, query.data.len / 2);
             const max_hsp_join_distance = DefaultMaxHSPJoinDistance;
             _ = min_hsp_length;
             _ = max_hsp_join_distance;
 
-            var hits = std.ArrayList(SearchHit).init(allocator);
-            defer hits.deinit();
-
+            // highscores
             var highscores = try Highscores.init(self.allocator, self.options.max_accepts + self.options.max_rejects);
             defer highscores.deinit();
 
@@ -121,7 +153,17 @@ pub fn Search(comptime DatabaseType: type) type {
             var num_hits: usize = 0;
             var num_rejects: usize = 0;
 
-            hits.clearRetainingCapacity();
+            var left_cigar = Cigar.init(self.allocator);
+            defer left_cigar.deinit();
+
+            var right_cigar = Cigar.init(self.allocator);
+            defer right_cigar.deinit();
+
+            var cigar = Cigar.init(self.allocator);
+            defer cigar.deinit();
+
+            var final_cigar = Cigar.init(self.allocator);
+            defer final_cigar.deinit();
 
             const top_to_bottom = highscores.top_to_bottom();
             for (top_to_bottom) |candidate| {
@@ -167,28 +209,24 @@ pub fn Search(comptime DatabaseType: type) type {
                 // Try to find best chain
                 // Fill space between with banded align
 
-                var align_parts = std.ArrayList(AlignPart).init(self.allocator);
+                var align_parts = utils.ArrayListWithDeinit(AlignPart).init(self.allocator);
                 defer align_parts.deinit();
 
                 for (sps.items) |sp| {
-                    var left_cigar = Cigar{};
-                    var right_cigar = Cigar{};
-                    var cigar = Cigar{};
-
                     var left_result = try self.extend_align.process(query, seq, .backward, sp.start_one, sp.start_two, &left_cigar);
                     var right_result = try self.extend_align.process(query, seq, .forward, sp.end_one + 1, sp.end_two + 1, &right_cigar);
 
-                    var hsp = HSP{ .start_one = left_result.pos_one, .start_two = left_result.pos_two, .end_one = right_result.pos_one, .end_two = right_result.pos_two };
+                    var align_part = AlignPart.init(self.allocator);
+                    align_part.hsp = .{ .start_one = left_result.pos_one, .start_two = left_result.pos_two, .end_one = right_result.pos_one, .end_two = right_result.pos_two };
 
-                    if (hsp.length() < min_hsp_length)
+                    if (align_part.hsp.length() < min_hsp_length)
                         continue;
 
-                    var pos_one = hsp.start_one;
-                    var pos_two = hsp.start_two;
+                    var pos_one = align_part.hsp.start_one;
+                    var pos_two = align_part.hsp.start_two;
 
                     // Construct full hsp (spaced seeds so we cannot assume full match)
-                    var score: i32 = 0;
-                    score = left_result.score;
+                    align_part.score = left_result.score;
 
                     // go until we hit start of SP (not HSP)
                     while (pos_one <= sp.end_one and pos_two <= sp.end_two) {
@@ -196,29 +234,28 @@ pub fn Search(comptime DatabaseType: type) type {
                         const letter_two = seq.data[pos_two];
                         const op: CigarOp = if (A.match(letter_one, letter_two)) .match else .mismatch;
 
-                        score += A.score(letter_one, letter_two);
-                        cigar.add(op);
+                        align_part.score += A.score(letter_one, letter_two);
+                        try align_part.cigar.add(op);
 
                         pos_one += 1;
                         pos_two += 1;
                     }
 
-                    score += right_result.score;
-                    cigar.appendOther(right_cigar);
+                    align_part.score += right_result.score;
+                    try align_part.cigar.appendOther(right_cigar);
 
-                    const align_part = AlignPart{ .hsp = hsp, .cigar = cigar, .score = score };
                     try align_parts.append(align_part);
                 }
 
                 // Sort by score, highest first
-                std.sort.sort(AlignPart, align_parts.items, {}, AlignPart.cmpScoreDesc);
+                std.sort.sort(AlignPart, align_parts.items.items, {}, AlignPart.cmpScoreDesc);
 
                 // Greedy join HSPs if close
                 var chain = std.ArrayList(AlignPart).init(self.allocator);
                 defer chain.deinit();
 
                 // Go through HSP (highest first)
-                for (align_parts.items) |part| {
+                for (align_parts.items.items) |part| {
                     // check if overlapping
                     var is_overlapping: bool = for (chain.items) |chain_part| {
                         if (part.hsp.is_overlapping(chain_part.hsp))
@@ -248,33 +285,33 @@ pub fn Search(comptime DatabaseType: type) type {
                     const first_part = &chain.items[0];
                     const last_part = &chain.items[chain.items.len - 1];
 
-                    var cigar = Cigar{};
-                    var final_cigar = Cigar{};
+                    final_cigar.clear();
 
                     // Align first HSP's start to whole sequences begin
                     _ = try self.banded_align.process(query, seq, .backward, first_part.hsp.start_one, first_part.hsp.start_two, null, null, &cigar);
-                    final_cigar.appendOther(cigar);
+                    try final_cigar.appendOther(cigar);
 
                     for (chain.items) |part, part_index| {
-                        final_cigar.appendOther(part.cigar);
+                        try final_cigar.appendOther(part.cigar);
 
                         if (part_index + 1 < chain.items.len) {
                             const next_part = &chain.items[part_index + 1];
                             _ = try self.banded_align.process(query, seq, .forward, part.hsp.end_one + 1, part.hsp.end_two + 1, next_part.hsp.start_one, next_part.hsp.start_two, &cigar);
-                            final_cigar.appendOther(cigar);
+                            try final_cigar.appendOther(cigar);
                         }
                     }
 
                     // Align last HSP's end to whole sequences end
                     _ = try self.banded_align.process(query, seq, .forward, last_part.hsp.end_one + 1, last_part.hsp.end_two + 1, null, null, &cigar);
-                    final_cigar.appendOther(cigar);
+                    try final_cigar.appendOther(cigar);
 
                     var accept = (final_cigar.identity() >= self.options.min_identity);
                     if (accept) {
-                        try hits.append(.{
-                            .db_seq_id = seq_id,
-                            .cigar = final_cigar,
-                        });
+                        var hit = SearchHit.init(hits.allocator);
+                        hit.db_seq_id = seq_id;
+                        try hit.cigar.appendOther(final_cigar);
+
+                        try hits.append(hit);
 
                         num_hits += 1;
                     } else {
@@ -285,8 +322,6 @@ pub fn Search(comptime DatabaseType: type) type {
                 if (num_hits >= self.options.max_accepts or num_rejects >= self.options.max_rejects)
                     break;
             } // each candidate
-
-            return hits.toOwnedSlice();
         }
 
         pub fn deinit(self: *Self) void {
@@ -317,11 +352,13 @@ test "check" {
         var search = try Search(databaseType).init(allocator, &database, .{});
         defer search.deinit();
 
-        const hits = try search.search(query, allocator);
-        defer allocator.free(hits);
+        var hits = SearchHitList.init(allocator);
+        defer hits.deinit();
 
-        try std.testing.expectEqual(@as(usize, 1), hits.len);
-        try std.testing.expectEqualStrings("DB1", database.sequences[hits[0].db_seq_id].identifier);
+        try search.search(query, &hits);
+
+        try std.testing.expectEqual(@as(usize, 1), hits.items.items.len);
+        try std.testing.expectEqualStrings("DB1", database.sequences[hits.items.items[0].db_seq_id].identifier);
     }
 
     // try accepts 2, other sequence is still low
@@ -329,11 +366,13 @@ test "check" {
         var search = try Search(databaseType).init(allocator, &database, .{ .max_accepts = 2 });
         defer search.deinit();
 
-        const hits = try search.search(query, allocator);
-        defer allocator.free(hits);
+        var hits = SearchHitList.init(allocator);
+        defer hits.deinit();
+
+        try search.search(query, &hits);
 
         // still 1
-        try std.testing.expectEqual(@as(usize, 1), hits.len);
+        try std.testing.expectEqual(@as(usize, 1), hits.items.items.len);
     }
 
     // accept two, but lower identity threshold
@@ -341,11 +380,13 @@ test "check" {
         var search = try Search(databaseType).init(allocator, &database, .{ .max_accepts = 2, .min_identity = 0.5 });
         defer search.deinit();
 
-        const hits = try search.search(query, allocator);
-        defer allocator.free(hits);
+        var hits = SearchHitList.init(allocator);
+        defer hits.deinit();
+
+        try search.search(query, &hits);
 
         // now 2
-        try std.testing.expectEqual(@as(usize, 2), hits.len);
+        try std.testing.expectEqual(@as(usize, 2), hits.items.items.len);
     }
 }
 
@@ -366,13 +407,19 @@ test "search multiple" {
 
     var query1 = try Sequence(alphabet.DNA).init(allocator, "Query 1 ", "TGAGACGATGCAAA");
     defer query1.deinit();
-    var hits1 = try search.search(query1, allocator);
-    defer allocator.free(hits1);
-    try std.testing.expectEqual(@as(usize, 1), hits1.len);
+
+    var hits1 = SearchHitList.init(allocator);
+    defer hits1.deinit();
+
+    try search.search(query1, &hits1);
+    try std.testing.expectEqual(@as(usize, 1), hits1.items.items.len);
 
     var query2 = try Sequence(alphabet.DNA).init(allocator, "Query 1 ", "CGTTATATTCGGAGACCTAT");
     defer query2.deinit();
-    var hits2 = try search.search(query2, allocator);
-    defer allocator.free(hits2);
-    try std.testing.expectEqual(@as(usize, 0), hits2.len);
+
+    var hits2 = SearchHitList.init(allocator);
+    defer hits2.deinit();
+
+    try search.search(query2, &hits2);
+    try std.testing.expectEqual(@as(usize, 0), hits2.items.items.len);
 }

@@ -14,55 +14,51 @@ pub const Cigar = struct {
         count: usize = 0,
     };
 
-    const MaxEntries = 256;
+    entries: std.ArrayList(Entry),
 
-    len: usize = 0,
-    buffer: [MaxEntries]Entry = undefined,
+    pub fn init(allocator: std.mem.Allocator) Self {
+        return Self{
+            .entries = std.ArrayList(Entry).init(allocator),
+        };
+    }
 
     pub fn isEmpty(self: *Self) bool {
-        return self.len == 0;
+        return self.entries.items.len == 0;
     }
 
     pub fn clear(self: *Self) void {
-        self.len = 0;
+        self.entries.clearRetainingCapacity();
     }
 
-    pub fn addWithCount(self: *Self, op: CigarOp, count: usize) void {
-        var last_entry = if (self.len == 0) null else &self.buffer[self.len - 1];
+    pub fn addWithCount(self: *Self, op: CigarOp, count: usize) !void {
+        var last_entry = if (self.entries.items.len == 0) null else &self.entries.items[self.entries.items.len - 1];
 
         if (last_entry == null or last_entry.?.op != op) {
-            self.buffer[self.len] = .{ .op = op, .count = count };
-            self.len += 1;
-
-            // if (self.len >= MaxEntries) {
-            //     self.len = 0;
-            // }
-
-            std.debug.assert(self.len < MaxEntries);
+            try self.entries.append(Entry{ .op = op, .count = count });
         } else {
             last_entry.?.count += count;
         }
     }
 
-    pub fn add(self: *Self, op: CigarOp) void {
-        self.addWithCount(op, 1);
+    pub fn add(self: *Self, op: CigarOp) !void {
+        try self.addWithCount(op, 1);
     }
 
-    pub fn appendOther(self: *Self, other: Self) void {
-        for (other.entries()) |other_entry| {
-            self.addWithCount(other_entry.op, other_entry.count);
+    pub fn appendOther(self: *Self, other: Self) !void {
+        for (other.entries.items) |other_entry| {
+            try self.addWithCount(other_entry.op, other_entry.count);
         }
     }
 
     pub fn reverse(self: *Self) void {
-        std.mem.reverse(Entry, self.buffer[0..self.len]);
+        std.mem.reverse(Entry, self.entries.items);
     }
 
-    pub fn toStringAlloc(self: Self, allocator: std.mem.Allocator) ![]u8 {
+    pub fn toStringAlloc(self: *Self, allocator: std.mem.Allocator) ![]u8 {
         var str = std.ArrayList(u8).init(allocator);
         var buf: [128]u8 = undefined;
 
-        for (self.entries()) |entry| {
+        for (self.entries.items) |entry| {
             const xyz = try std.fmt.bufPrint(buf[0..], "{}{c}", .{ entry.count, @enumToInt(entry.op) });
             try str.appendSlice(xyz);
         }
@@ -74,14 +70,14 @@ pub const Cigar = struct {
         var letters: usize = 0;
         var matches: usize = 0;
 
-        for (self.entries()) |entry, index| {
+        for (self.entries.items) |entry, index| {
             const is_gap = (entry.op == .insertion or entry.op == .deletion);
 
             // Don't count terminal gaps towards identity calculation
             if (index == 0 and is_gap)
                 continue;
 
-            if (index == (self.len - 1) and is_gap)
+            if (index == self.entries.items.len - 1 and is_gap)
                 continue;
 
             letters += entry.count;
@@ -94,24 +90,25 @@ pub const Cigar = struct {
         return @intToFloat(f32, matches) / @intToFloat(f32, letters);
     }
 
-    pub fn entries(self: Self) []const Entry {
-        return self.buffer[0..self.len];
+    pub fn deinit(self: *Self) void {
+        self.entries.deinit();
     }
 };
 
 test "basic add" {
     const allocator = std.testing.allocator;
 
-    var cigar = Cigar{};
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
 
-    cigar.add(CigarOp.match);
-    cigar.add(CigarOp.match);
-    cigar.add(CigarOp.mismatch);
-    cigar.add(CigarOp.deletion);
-    cigar.addWithCount(CigarOp.deletion, 2);
-    cigar.add(CigarOp.insertion);
-    cigar.add(CigarOp.insertion);
-    cigar.add(CigarOp.match);
+    try cigar.add(CigarOp.match);
+    try cigar.add(CigarOp.match);
+    try cigar.add(CigarOp.mismatch);
+    try cigar.add(CigarOp.deletion);
+    try cigar.addWithCount(CigarOp.deletion, 2);
+    try cigar.add(CigarOp.insertion);
+    try cigar.add(CigarOp.insertion);
+    try cigar.add(CigarOp.match);
 
     const cigar_str = try cigar.toStringAlloc(allocator);
     defer allocator.free(cigar_str);
@@ -122,21 +119,23 @@ test "basic add" {
 test "append other cigar" {
     const allocator = std.testing.allocator;
 
-    var cigar = Cigar{};
-    var other_cigar = Cigar{};
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
 
+    var other_cigar = Cigar.init(allocator);
+    defer other_cigar.deinit();
     // tail does not match, simple append
     {
         cigar.clear();
-        cigar.add(CigarOp.match);
-        cigar.add(CigarOp.match);
-        cigar.add(CigarOp.mismatch);
+        try cigar.add(CigarOp.match);
+        try cigar.add(CigarOp.match);
+        try cigar.add(CigarOp.mismatch);
 
         other_cigar.clear();
-        other_cigar.add(CigarOp.match);
-        other_cigar.add(CigarOp.deletion);
+        try other_cigar.add(CigarOp.match);
+        try other_cigar.add(CigarOp.deletion);
 
-        cigar.appendOther(other_cigar);
+        try cigar.appendOther(other_cigar);
 
         const cigar_str = try cigar.toStringAlloc(allocator);
         defer allocator.free(cigar_str);
@@ -146,16 +145,16 @@ test "append other cigar" {
     // tail matches, expand
     {
         cigar.clear();
-        cigar.add(CigarOp.match);
-        cigar.add(CigarOp.match);
-        cigar.add(CigarOp.mismatch);
+        try cigar.add(CigarOp.match);
+        try cigar.add(CigarOp.match);
+        try cigar.add(CigarOp.mismatch);
 
         other_cigar.clear();
-        other_cigar.add(CigarOp.mismatch);
-        other_cigar.add(CigarOp.mismatch);
-        other_cigar.add(CigarOp.deletion);
+        try other_cigar.add(CigarOp.mismatch);
+        try other_cigar.add(CigarOp.mismatch);
+        try other_cigar.add(CigarOp.deletion);
 
-        cigar.appendOther(other_cigar);
+        try cigar.appendOther(other_cigar);
 
         const cigar_str = try cigar.toStringAlloc(allocator);
         defer allocator.free(cigar_str);
