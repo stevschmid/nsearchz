@@ -36,7 +36,7 @@ pub fn Search(comptime DatabaseType: type) type {
 
         allocator: std.mem.Allocator,
         options: SearchOptions,
-        database: DatabaseType,
+        database: *DatabaseType,
         extend_align: ea.ExtendAlign(A),
         banded_align: ba.BandedAlign(A),
         kmers: std.ArrayList(kmerInfo.KmerType),
@@ -58,7 +58,7 @@ pub fn Search(comptime DatabaseType: type) type {
             }
         };
 
-        pub fn init(allocator: std.mem.Allocator, database: DatabaseType, options: SearchOptions) !Self {
+        pub fn init(allocator: std.mem.Allocator, database: *DatabaseType, options: SearchOptions) !Self {
             return Self{
                 .allocator = allocator,
                 .database = database,
@@ -70,7 +70,7 @@ pub fn Search(comptime DatabaseType: type) type {
             };
         }
 
-        fn search(self: *Self, query: Sequence(A), allocator: std.mem.Allocator) ![]SearchHit {
+        pub fn search(self: *Self, query: Sequence(A), allocator: std.mem.Allocator) ![]SearchHit {
             const min_hsp_length = std.math.min(DefaultMinHspLength, query.data.len / 2);
             const max_hsp_join_distance = DefaultMaxHSPJoinDistance;
             _ = min_hsp_length;
@@ -314,7 +314,7 @@ test "check" {
     defer database.deinit();
 
     {
-        var search = try Search(databaseType).init(allocator, database, .{});
+        var search = try Search(databaseType).init(allocator, &database, .{});
         defer search.deinit();
 
         const hits = try search.search(query, allocator);
@@ -326,7 +326,7 @@ test "check" {
 
     // try accepts 2, other sequence is still low
     {
-        var search = try Search(databaseType).init(allocator, database, .{ .max_accepts = 2 });
+        var search = try Search(databaseType).init(allocator, &database, .{ .max_accepts = 2 });
         defer search.deinit();
 
         const hits = try search.search(query, allocator);
@@ -338,7 +338,7 @@ test "check" {
 
     // accept two, but lower identity threshold
     {
-        var search = try Search(databaseType).init(allocator, database, .{ .max_accepts = 2, .min_identity = 0.5 });
+        var search = try Search(databaseType).init(allocator, &database, .{ .max_accepts = 2, .min_identity = 0.5 });
         defer search.deinit();
 
         const hits = try search.search(query, allocator);
@@ -347,4 +347,32 @@ test "check" {
         // now 2
         try std.testing.expectEqual(@as(usize, 2), hits.len);
     }
+}
+
+test "search multiple" {
+    const allocator = std.testing.allocator;
+
+    var sequences = SequenceList(alphabet.DNA).init(allocator);
+    defer sequences.deinit();
+    try sequences.append("DB1", "ATCGTGAGACGATGCAAAAAATTGAGA");
+    try sequences.append("DB2", "GTCCGACGCAATAAACTATATGGGG");
+
+    const databaseType = Database(alphabet.DNA, 8);
+    var database = try databaseType.init(allocator, sequences.toOwnedSlice());
+    defer database.deinit();
+
+    var search = try Search(databaseType).init(allocator, &database, .{});
+    defer search.deinit();
+
+    var query1 = try Sequence(alphabet.DNA).init(allocator, "Query 1 ", "TGAGACGATGCAAA");
+    defer query1.deinit();
+    var hits1 = try search.search(query1, allocator);
+    defer allocator.free(hits1);
+    try std.testing.expectEqual(@as(usize, 1), hits1.len);
+
+    var query2 = try Sequence(alphabet.DNA).init(allocator, "Query 1 ", "CGTTATATTCGGAGACCTAT");
+    defer query2.deinit();
+    var hits2 = try search.search(query2, allocator);
+    defer allocator.free(hits2);
+    try std.testing.expectEqual(@as(usize, 0), hits2.len);
 }

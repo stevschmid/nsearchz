@@ -10,6 +10,7 @@ const ba = @import("banded_align.zig");
 const Cigar = @import("cigar.zig").Cigar;
 const CigarOp = @import("cigar.zig").CigarOp;
 
+const Search = @import("search.zig").Search;
 const Sequence = @import("sequence.zig").Sequence;
 const SequenceList = @import("sequence.zig").SequenceList;
 
@@ -20,23 +21,50 @@ const Highscores = @import("highscores.zig").Highscores;
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
 
-const alphabetChosen = alphabet.DNA;
-const kmerInfo = bio.kmer.KmerInfo(alphabetChosen, 8);
+pub fn Worker(comptime DatabaseType: type) type {
+    return struct {
+        pub const WorkItem = struct {
+            query: Sequence(DatabaseType.Alphabet),
+        };
 
-const Strand = enum {
-    Plus,
-    Minus,
-    Both,
-};
+        pub const WorkerContext = struct {
+            allocator: std.mem.Allocator,
+            queue: *std.atomic.Queue(WorkItem),
+            database: *DatabaseType,
+        };
 
-const SearchParams = struct {
-    max_accepts: u32 = 1,
-    max_rejects: u32 = 16,
-    min_identity: f32 = 0.8,
-    strand: Strand = Strand.Plus,
-};
+        fn entryPoint(context: *WorkerContext) !void {
+            const allocator = context.allocator;
+            const database = context.database;
+
+            var search = try Search(DatabaseType).init(allocator, database, .{});
+            defer search.deinit();
+            _ = search;
+
+            while (context.queue.get()) |node| {
+                const query = node.data.query;
+                const hits = try search.search(query, allocator);
+                defer allocator.free(hits);
+
+                for (hits) |hit| {
+                    const cigar_str = try hit.cigar.toStringAlloc(allocator);
+                    defer allocator.free(cigar_str);
+
+                    if (hit.cigar.len > 100) {
+                        std.debug.print("Hello {}\n", .{hit.cigar.len});
+                    }
+                }
+
+                allocator.destroy(node);
+            }
+        }
+    };
+}
 
 pub fn main() !void {
+    const databaseType = Database(alphabet.DNA, 8);
+    const workerType = Worker(databaseType);
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
@@ -48,22 +76,53 @@ pub fn main() !void {
     // skip my own exe name
     _ = arg_it.skip();
 
-    const file = (try arg_it.next(allocator) orelse {
-        print("Expected first argument to be path to input file\n", .{});
+    const filePathToDatabase = (try arg_it.next(allocator) orelse {
+        print("Expected first argument to be path to database file\n", .{});
         return error.InvalidArgs;
     });
-    defer allocator.free(file);
+    defer allocator.free(filePathToDatabase);
 
-    var seq_list = SequenceList(alphabetChosen).init(allocator);
-    defer seq_list.deinit();
+    const filePathToQuery = (try arg_it.next(allocator) orelse {
+        print("Expected second argument to be path to query file\n", .{});
+        return error.InvalidArgs;
+    });
+    defer allocator.free(filePathToQuery);
 
-    try FastaReader(alphabetChosen).readFile(file, &seq_list);
+    // Read DB
+    var sequences = SequenceList(alphabet.DNA).init(allocator);
+    defer sequences.deinit();
+    try FastaReader(alphabet.DNA).readFile(filePathToDatabase, &sequences);
+
+    // Read Query
+    var queries = SequenceList(alphabet.DNA).init(allocator);
+    defer queries.deinit();
+    try FastaReader(alphabet.DNA).readFile(filePathToQuery, &queries);
 
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
-
     bench_start = std.time.milliTimestamp();
-    var db = try Database(alphabet.DNA, 8).init(allocator, seq_list.toOwnedSlice());
+    var db = try databaseType.init(allocator, sequences.toOwnedSlice());
     defer db.deinit();
-
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
+
+    // searching
+
+    var queue = std.atomic.Queue(workerType.WorkItem).init();
+    var context: workerType.WorkerContext = .{
+        .allocator = allocator,
+        .queue = &queue,
+        .database = &db,
+    };
+
+    for (queries.list.items) |query| {
+        const node = try context.allocator.create(std.atomic.Queue(workerType.WorkItem).Node);
+        node.* = .{
+            .data = workerType.WorkItem{
+                .query = query,
+            },
+        };
+        queue.put(node);
+    }
+
+    var thread = try std.Thread.spawn(.{}, workerType.entryPoint, .{&context});
+    thread.join();
 }

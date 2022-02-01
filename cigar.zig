@@ -14,7 +14,7 @@ pub const Cigar = struct {
         count: usize = 0,
     };
 
-    const MaxEntries = 128;
+    const MaxEntries = 256;
 
     len: usize = 0,
     buffer: [MaxEntries]Entry = undefined,
@@ -33,6 +33,10 @@ pub const Cigar = struct {
         if (last_entry == null or last_entry.?.op != op) {
             self.buffer[self.len] = .{ .op = op, .count = count };
             self.len += 1;
+
+            // if (self.len >= MaxEntries) {
+            //     self.len = 0;
+            // }
 
             std.debug.assert(self.len < MaxEntries);
         } else {
@@ -54,7 +58,7 @@ pub const Cigar = struct {
         std.mem.reverse(Entry, self.buffer[0..self.len]);
     }
 
-    pub fn toStringAlloc(self: *Self, allocator: std.mem.Allocator) ![]u8 {
+    pub fn toStringAlloc(self: Self, allocator: std.mem.Allocator) ![]u8 {
         var str = std.ArrayList(u8).init(allocator);
         var buf: [128]u8 = undefined;
 
