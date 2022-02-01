@@ -62,7 +62,7 @@ pub fn main() !void {
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     bench_start = std.time.milliTimestamp();
-    var db = try Database(alphabet.DNA, 8).init(allocator, seq_list.list.items);
+    var db = try Database(alphabet.DNA, 8).init(allocator, seq_list.toOwnedSlice());
     defer db.deinit();
 
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});

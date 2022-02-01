@@ -9,7 +9,7 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
         pub const kmerInfo = bio.kmer.KmerInfo(A, KmerLength);
 
         allocator: std.mem.Allocator,
-        sequences: []const Sequence(A),
+        sequences: []Sequence(A),
 
         seq_indices: []const usize,
         seq_offset_by_kmer: []const usize,
@@ -19,7 +19,8 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
         kmer_offset_by_seq: []const usize,
         kmer_count_by_seq: []const usize,
 
-        pub fn init(allocator: std.mem.Allocator, sequences: []const Sequence(A)) !Self {
+        // Database takes ownerhip of sequences
+        pub fn init(allocator: std.mem.Allocator, sequences: []Sequence(A)) !Self {
             var total_entries: usize = 0;
             var total_unique_entries: usize = 0;
 
@@ -119,6 +120,9 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
             self.allocator.free(self.kmers);
             self.allocator.free(self.kmer_offset_by_seq);
             self.allocator.free(self.kmer_count_by_seq);
+
+            for (self.sequences) |*sequence| sequence.deinit();
+            self.allocator.free(self.sequences);
         }
     };
 }
