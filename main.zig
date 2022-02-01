@@ -11,6 +11,8 @@ const Cigar = @import("cigar.zig").Cigar;
 const CigarOp = @import("cigar.zig").CigarOp;
 
 const Search = @import("search.zig").Search;
+const SearchHitList = @import("search.zig").SearchHitList;
+
 const Sequence = @import("sequence.zig").Sequence;
 const SequenceList = @import("sequence.zig").SequenceList;
 
@@ -43,16 +45,16 @@ pub fn Worker(comptime DatabaseType: type) type {
 
             while (context.queue.get()) |node| {
                 const query = node.data.query;
-                const hits = try search.search(query, allocator);
-                defer allocator.free(hits);
 
-                for (hits) |hit| {
+                var hits = SearchHitList.init(allocator);
+                defer hits.deinit();
+                try search.search(query, &hits);
+
+                for (hits.items.items) |hit| {
                     const cigar_str = try hit.cigar.toStringAlloc(allocator);
                     defer allocator.free(cigar_str);
 
-                    if (hit.cigar.len > 100) {
-                        std.debug.print("Hello {}\n", .{hit.cigar.len});
-                    }
+                    std.debug.print("Hello {s}\n", .{cigar_str});
                 }
 
                 allocator.destroy(node);
@@ -65,9 +67,10 @@ pub fn main() !void {
     const databaseType = Database(alphabet.DNA, 8);
     const workerType = Worker(databaseType);
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    // defer _ = gpa.deinit();
+    // const allocator = gpa.allocator();
+    const allocator = std.heap.c_allocator;
 
     var bench_start = std.time.milliTimestamp();
 

@@ -16,13 +16,13 @@ const ba = @import("banded_align.zig");
 
 const utils = @import("utils.zig");
 
-const SearchOptions = struct {
+pub const SearchOptions = struct {
     max_accepts: u32 = 1,
     max_rejects: u32 = 16,
     min_identity: f32 = 0.8,
 };
 
-const SearchHit = struct {
+pub const SearchHit = struct {
     const Self = @This();
 
     allocator: std.mem.Allocator,
@@ -41,7 +41,8 @@ const SearchHit = struct {
         self.cigar.deinit();
     }
 };
-const SearchHitList = utils.ArrayListWithDeinit(SearchHit);
+
+pub const SearchHitList = utils.ArrayListWithDeinit(SearchHit);
 
 const AlignPart = struct {
     const Self = @This();

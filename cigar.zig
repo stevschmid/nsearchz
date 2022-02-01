@@ -54,7 +54,7 @@ pub const Cigar = struct {
         std.mem.reverse(Entry, self.entries.items);
     }
 
-    pub fn toStringAlloc(self: *Self, allocator: std.mem.Allocator) ![]u8 {
+    pub fn toStringAlloc(self: Self, allocator: std.mem.Allocator) ![]u8 {
         var str = std.ArrayList(u8).init(allocator);
         var buf: [128]u8 = undefined;
 
