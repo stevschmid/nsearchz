@@ -17,7 +17,7 @@ pub const Cigar = struct {
     const MaxEntries = 128;
 
     len: usize = 0,
-    entries: [MaxEntries]Entry = undefined,
+    buffer: [MaxEntries]Entry = undefined,
 
     pub fn isEmpty(self: *Self) bool {
         return self.len == 0;
@@ -28,10 +28,10 @@ pub const Cigar = struct {
     }
 
     pub fn addWithCount(self: *Self, op: CigarOp, count: usize) void {
-        var last_entry = if (self.len == 0) null else &self.entries[self.len - 1];
+        var last_entry = if (self.len == 0) null else &self.buffer[self.len - 1];
 
         if (last_entry == null or last_entry.?.op != op) {
-            self.entries[self.len] = .{ .op = op, .count = count };
+            self.buffer[self.len] = .{ .op = op, .count = count };
             self.len += 1;
 
             std.debug.assert(self.len < MaxEntries);
@@ -45,20 +45,20 @@ pub const Cigar = struct {
     }
 
     pub fn appendOther(self: *Self, other: Self) void {
-        for (other.entries[0..other.len]) |other_entry| {
+        for (other.entries()) |other_entry| {
             self.addWithCount(other_entry.op, other_entry.count);
         }
     }
 
     pub fn reverse(self: *Self) void {
-        std.mem.reverse(Entry, self.entries[0..self.len]);
+        std.mem.reverse(Entry, self.buffer[0..self.len]);
     }
 
     pub fn toStringAlloc(self: *Self, allocator: std.mem.Allocator) ![]u8 {
         var str = std.ArrayList(u8).init(allocator);
         var buf: [128]u8 = undefined;
 
-        for (self.entries[0..self.len]) |entry| {
+        for (self.entries()) |entry| {
             const xyz = try std.fmt.bufPrint(buf[0..], "{}{c}", .{ entry.count, @enumToInt(entry.op) });
             try str.appendSlice(xyz);
         }
@@ -70,7 +70,7 @@ pub const Cigar = struct {
         var letters: usize = 0;
         var matches: usize = 0;
 
-        for (self.entries[0..self.len]) |entry, index| {
+        for (self.entries()) |entry, index| {
             const is_gap = (entry.op == .insertion or entry.op == .deletion);
 
             // Don't count terminal gaps towards identity calculation
@@ -90,9 +90,9 @@ pub const Cigar = struct {
         return @intToFloat(f32, matches) / @intToFloat(f32, letters);
     }
 
-    // pub fn deinit(self: *Self) void {
-    //     self.entries.deinit();
-    // }
+    pub fn entries(self: Self) []const Entry {
+        return self.buffer[0..self.len];
+    }
 };
 
 test "basic add" {
