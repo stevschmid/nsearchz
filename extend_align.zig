@@ -213,7 +213,7 @@ pub fn ExtendAlign(comptime A: type) type {
 
                 while (bx > 0 or by > 0) {
                     const op = ops[by * width + bx];
-                    try cigar.?.add(op);
+                    cigar.?.add(op);
 
                     // where did we come from?
                     switch (op) {
@@ -255,9 +255,7 @@ test "forward" {
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, ExtendAlignOptions{});
     defer extend_align.deinit();
 
-    var cigar = Cigar.init(allocator);
-    defer cigar.deinit();
-
+    var cigar: Cigar = undefined;
     var result = try extend_align.process(seq_one, seq_two, ExtendAlignDirection.forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 4), result.score); // 2 matches = +4
     // try std.testing.expectEqualSlices(CigarOp, &[_]CigarOp{ CigarOp.match, CigarOp.match }, cigar.ops.items);
@@ -275,9 +273,7 @@ test "gaps" {
     var extend_align = ExtendAlign(alphabet.DNA).init(allocator, .{ .gap_open_score = -3 });
     defer extend_align.deinit();
 
-    var cigar = Cigar.init(allocator);
-    defer cigar.deinit();
-
+    var cigar: Cigar = undefined;
     var result = try extend_align.process(seq_one, seq_two, .forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 5), result.score); // 6 matches, 1 gap,  gap len = 1 - 3 - *
 
@@ -298,8 +294,7 @@ test "forward extend" {
     defer extend_align.deinit();
 
     {
-        var cigar = Cigar.init(allocator);
-        defer cigar.deinit();
+        var cigar = Cigar{};
 
         var result = try extend_align.process(seq_one, seq_two, .forward, 0, 0, &cigar);
         try std.testing.expectEqual(result.pos_one, 3);
@@ -312,8 +307,7 @@ test "forward extend" {
     }
 
     {
-        var cigar = Cigar.init(allocator);
-        defer cigar.deinit();
+        var cigar = Cigar{};
 
         var result = try extend_align.process(seq_one, seq_two, .forward, 3, 3, &cigar);
         try std.testing.expectEqual(result.pos_one, 3);
@@ -326,8 +320,7 @@ test "forward extend" {
     }
 
     {
-        var cigar = Cigar.init(allocator);
-        defer cigar.deinit();
+        var cigar = Cigar{};
 
         var result = try extend_align.process(seq_one, seq_two, .forward, 4, 4, &cigar);
         try std.testing.expectEqual(result.pos_one, 4);

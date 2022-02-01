@@ -32,14 +32,24 @@ pub fn Sequence(comptime A: type) type {
             } else true;
         }
 
-        pub fn complement(self: *Self) void {
-            for (self.data) |*letter| {
-                self.letter.* = A.complement(letter.*);
-            }
+        pub fn clone(self: *Self) !Self {
+            return Self{
+                .allocator = self.allocator,
+                .identifier = try utils.dup(u8, self.allocator, self.identifier),
+                .data = try utils.dup(u8, self.allocator, self.data),
+            };
         }
 
-        pub fn reverse(self: Self) void {
+        pub fn reverse(self: *Self) void {
+            // reverse
             std.mem.reverse(u8, self.data);
+        }
+
+        pub fn complement(self: *Self) void {
+            // complement
+            for (self.data) |*letter| {
+                letter.* = A.complement(letter.*);
+            }
         }
     };
 }
@@ -58,13 +68,13 @@ pub fn SequenceList(comptime A: type) type {
             };
         }
 
-        pub fn appendSeq(self: *Self, seq: Sequence(A)) !void {
-            return try self.append(seq.identifier, seq.data);
-        }
-
         pub fn append(self: *Self, identifier: []const u8, data: []const u8) !void {
             const seq = try Sequence(A).init(self.allocator, identifier, data);
             try self.list.append(seq);
+        }
+
+        pub fn toOwnedSlice(self: *Self) []Sequence(A) {
+            return self.list.toOwnedSlice();
         }
 
         pub fn deinit(self: *Self) void {

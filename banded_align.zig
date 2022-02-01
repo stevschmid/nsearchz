@@ -257,7 +257,7 @@ pub fn BandedAlign(comptime A: type) type {
 
                 while (bx > 0 or by > 0) {
                     const op = ops[by * width + bx];
-                    try cigar.?.add(op);
+                    cigar.?.add(op);
 
                     // where did we come from?
                     switch (op) {
@@ -290,7 +290,7 @@ pub fn BandedAlign(comptime A: type) type {
 
                 var pad = num_remaining;
                 while (pad > 0) : (pad -= 1) {
-                    try cigar.?.add(CigarOp.deletion);
+                    cigar.?.add(CigarOp.deletion);
                 }
             } else if (y == height) {
                 // We reached the end of B, emulate going down on A (horizontal gaps)
@@ -300,7 +300,7 @@ pub fn BandedAlign(comptime A: type) type {
 
                 var pad = num_remaining;
                 while (pad > 0) : (pad -= 1) {
-                    try cigar.?.add(CigarOp.insertion);
+                    cigar.?.add(CigarOp.insertion);
                 }
             }
 
@@ -326,8 +326,7 @@ fn testAlign(one: []const u8, two: []const u8, dir: BandedAlignDirection, option
     var banded_align = BandedAlign(alphabet.DNA).init(allocator, options);
     defer banded_align.deinit();
 
-    var cigar = Cigar.init(allocator);
-    defer cigar.deinit();
+    var cigar = Cigar{};
 
     var score = try banded_align.process(seq_one, seq_two, dir, start_one, start_two, end_one, end_two, &cigar);
 
@@ -397,8 +396,7 @@ test "Breaking case: Improper reset of vertical gap at 0,0" {
     var seq_one = try Sequence(alphabet.DNA).init(allocator, "one", "ATGCC");
     defer seq_one.deinit();
 
-    var cigar = Cigar.init(allocator);
-    defer cigar.deinit();
+    var cigar = Cigar{};
 
     var score1: i32 = undefined;
     var score2: i32 = undefined;
