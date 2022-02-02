@@ -50,7 +50,7 @@ pub fn Worker(comptime DatabaseType: type) type {
                 defer hits.deinit();
                 try search.search(query, &hits);
 
-                for (hits.items.items) |hit| {
+                for (hits.list.items) |hit| {
                     std.debug.print("Hello {s}\n", .{hit.cigar.str()});
                 }
 
@@ -64,10 +64,9 @@ pub fn main() !void {
     const databaseType = Database(alphabet.DNA, 8);
     const workerType = Worker(databaseType);
 
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
-    const allocator = std.heap.c_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     var bench_start = std.time.milliTimestamp();
 
@@ -100,7 +99,7 @@ pub fn main() !void {
 
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
     bench_start = std.time.milliTimestamp();
-    var db = try databaseType.init(allocator, sequences.toOwnedSlice());
+    var db = try databaseType.init(allocator, sequences.list.toOwnedSlice());
     defer db.deinit();
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 

@@ -6,37 +6,25 @@ pub fn dup(comptime T: type, allocator: std.mem.Allocator, slice: []const T) ![]
     return result;
 }
 
-pub fn ArrayListWithDeinit(comptime T: type) type {
+pub fn ArrayListDeinitWrapper(comptime T: type) type {
     return struct {
         const Self = @This();
 
         allocator: std.mem.Allocator,
-        items: std.ArrayList(T),
+        list: std.ArrayList(T),
 
         pub fn init(allocator: std.mem.Allocator) Self {
             return Self{
                 .allocator = allocator,
-                .items = std.ArrayList(T).init(allocator),
+                .list = std.ArrayList(T).init(allocator),
             };
         }
 
         pub fn deinit(self: *Self) void {
-            for (self.items.items) |*item|
+            for (self.list.items) |*item|
                 item.deinit();
 
-            self.items.deinit();
-        }
-
-        pub fn append(self: *Self, item: T) !void {
-            try self.items.append(item);
-        }
-
-        pub fn toOwnedSlice(self: *Self) []T {
-            return self.items.toOwnedSlice();
-        }
-
-        pub fn clear(self: *Self) void {
-            return self.items.clearRetainingCapacity();
+            self.list.deinit();
         }
     };
 }

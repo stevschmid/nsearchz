@@ -24,7 +24,7 @@ pub fn FastaReader(comptime A: type) type {
                     '>' => {
                         // add old sequence
                         if (data.items.len > 0) {
-                            try sequences.append(identifier.items, data.items);
+                            try sequences.list.append(try Sequence(A).init(sequences.allocator, identifier.items, data.items));
                         }
 
                         // reset
@@ -52,7 +52,7 @@ pub fn FastaReader(comptime A: type) type {
 
             // add remaining sequence
             if (data.items.len > 0) {
-                try sequences.append(identifier.items, data.items);
+                try sequences.list.append(try Sequence(A).init(sequences.allocator, identifier.items, data.items));
             }
         }
 

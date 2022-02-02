@@ -1,6 +1,10 @@
 const std = @import("std");
 const utils = @import("utils.zig");
 
+pub fn SequenceList(comptime A: type) type {
+    return utils.ArrayListDeinitWrapper(Sequence(A));
+}
+
 pub fn Sequence(comptime A: type) type {
     return struct {
         const Self = @This();
@@ -50,38 +54,6 @@ pub fn Sequence(comptime A: type) type {
             for (self.data) |*letter| {
                 letter.* = A.complement(letter.*);
             }
-        }
-    };
-}
-
-pub fn SequenceList(comptime A: type) type {
-    return struct {
-        const Self = @This();
-
-        allocator: std.mem.Allocator,
-        list: std.ArrayList(Sequence(A)),
-
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return Self{
-                .allocator = allocator,
-                .list = std.ArrayList(Sequence(A)).init(allocator),
-            };
-        }
-
-        pub fn append(self: *Self, identifier: []const u8, data: []const u8) !void {
-            const seq = try Sequence(A).init(self.allocator, identifier, data);
-            try self.list.append(seq);
-        }
-
-        pub fn toOwnedSlice(self: *Self) []Sequence(A) {
-            return self.list.toOwnedSlice();
-        }
-
-        pub fn deinit(self: *Self) void {
-            for (self.list.items) |*seq|
-                seq.deinit();
-
-            self.list.deinit();
         }
     };
 }
