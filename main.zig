@@ -16,53 +16,53 @@ const SearchHitList = @import("search.zig").SearchHitList;
 const Sequence = @import("sequence.zig").Sequence;
 const SequenceList = @import("sequence.zig").SequenceList;
 
-const FastaReader = @import("fasta_reader.zig").FastaReader;
+const FastaReader = @import("io/io.zig").FastaReader;
 const Database = @import("database.zig").Database;
 const Highscores = @import("highscores.zig").Highscores;
 
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
 
-pub fn Worker(comptime DatabaseType: type) type {
-    return struct {
-        pub const WorkItem = struct {
-            query: Sequence(DatabaseType.Alphabet),
-        };
+// pub fn Worker(comptime DatabaseType: type) type {
+//     return struct {
+//         pub const WorkItem = struct {
+//             query: Sequence(DatabaseType.Alphabet),
+//         };
 
-        pub const WorkerContext = struct {
-            allocator: std.mem.Allocator,
-            queue: *std.atomic.Queue(WorkItem),
-            database: *DatabaseType,
-        };
+//         pub const WorkerContext = struct {
+//             allocator: std.mem.Allocator,
+//             queue: *std.atomic.Queue(WorkItem),
+//             database: *DatabaseType,
+//         };
 
-        fn entryPoint(context: *WorkerContext) !void {
-            const allocator = context.allocator;
-            const database = context.database;
+//         fn entryPoint(context: *WorkerContext) !void {
+//             const allocator = context.allocator;
+//             const database = context.database;
 
-            var search = try Search(DatabaseType).init(allocator, database, .{});
-            defer search.deinit();
-            _ = search;
+//             var search = try Search(DatabaseType).init(allocator, database, .{});
+//             defer search.deinit();
+//             _ = search;
 
-            while (context.queue.get()) |node| {
-                const query = node.data.query;
+//             while (context.queue.get()) |node| {
+//                 const query = node.data.query;
 
-                var hits = SearchHitList.init(allocator);
-                defer hits.deinit();
-                try search.search(query, &hits);
+//                 var hits = SearchHitList.init(allocator);
+//                 defer hits.deinit();
+//                 try search.search(query, &hits);
 
-                for (hits.list.items) |hit| {
-                    std.debug.print("Hello {s}\n", .{hit.cigar.str()});
-                }
+//                 for (hits.list.items) |hit| {
+//                     std.debug.print("Hello {s}\n", .{hit.cigar.str()});
+//                 }
 
-                allocator.destroy(node);
-            }
-        }
-    };
-}
+//                 allocator.destroy(node);
+//             }
+//         }
+//     };
+// }
 
 pub fn main() !void {
     const databaseType = Database(alphabet.DNA, 8);
-    const workerType = Worker(databaseType);
+    // const workerType = Worker(databaseType);
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -105,23 +105,38 @@ pub fn main() !void {
 
     // searching
 
-    var queue = std.atomic.Queue(workerType.WorkItem).init();
-    var context: workerType.WorkerContext = .{
-        .allocator = allocator,
-        .queue = &queue,
-        .database = &db,
-    };
+    // var queue = std.atomic.Queue(workerType.WorkItem).init();
+    // var context: workerType.WorkerContext = .{
+    //     .allocator = allocator,
+    //     .queue = &queue,
+    //     .database = &db,
+    // };
+
+    // for (queries.list.items) |query| {
+    //     const node = try context.allocator.create(std.atomic.Queue(workerType.WorkItem).Node);
+    //     node.* = .{
+    //         .data = workerType.WorkItem{
+    //             .query = query,
+    //         },
+    //     };
+    //     queue.put(node);
+    // }
+
+    // var thread = try std.Thread.spawn(.{}, workerType.entryPoint, .{&context});
+    // thread.join();
+
+    var search = try Search(databaseType).init(allocator, &db, .{});
+    defer search.deinit();
 
     for (queries.list.items) |query| {
-        const node = try context.allocator.create(std.atomic.Queue(workerType.WorkItem).Node);
-        node.* = .{
-            .data = workerType.WorkItem{
-                .query = query,
-            },
-        };
-        queue.put(node);
+        var hits = SearchHitList.init(allocator);
+        defer hits.deinit();
+        try search.search(query, &hits);
+
+        for (hits.list.items) |hit| {
+            std.debug.print("heh {s}\n", .{hit.cigar.str()});
+        }
     }
 
-    var thread = try std.Thread.spawn(.{}, workerType.entryPoint, .{&context});
-    thread.join();
+    // _ = search;
 }

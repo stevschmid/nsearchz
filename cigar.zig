@@ -14,12 +14,20 @@ pub const Cigar = struct {
         count: usize = 0,
     };
 
+    allocator: std.mem.Allocator,
     entries: std.ArrayList(Entry),
 
     pub fn init(allocator: std.mem.Allocator) Self {
         return Self{
+            .allocator = allocator,
             .entries = std.ArrayList(Entry).init(allocator),
         };
+    }
+
+    pub fn clone(self: Self) !Self {
+        var cloned = Self.init(self.allocator);
+        try cloned.entries.appendSlice(self.entries.items);
+        return cloned;
     }
 
     pub fn isEmpty(self: *Self) bool {

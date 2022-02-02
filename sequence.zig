@@ -21,6 +21,10 @@ pub fn Sequence(comptime A: type) type {
             };
         }
 
+        pub fn clone(self: Self) !Self {
+            return try Self.init(self.allocator, self.identifier, self.data);
+        }
+
         pub fn deinit(self: *Self) void {
             self.allocator.free(self.identifier);
             self.allocator.free(self.data);
@@ -34,14 +38,6 @@ pub fn Sequence(comptime A: type) type {
             return for (self.data) |_, index| {
                 if (self.data[index] != other.data[index]) break false;
             } else true;
-        }
-
-        pub fn clone(self: *Self) !Self {
-            return Self{
-                .allocator = self.allocator,
-                .identifier = try utils.dup(u8, self.allocator, self.identifier),
-                .data = try utils.dup(u8, self.allocator, self.data),
-            };
         }
 
         pub fn reverse(self: *Self) void {

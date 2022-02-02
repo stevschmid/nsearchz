@@ -1,8 +1,8 @@
 const std = @import("std");
-const Sequence = @import("sequence.zig").Sequence;
-const SequenceList = @import("sequence.zig").SequenceList;
 
-const utils = @import("utils.zig");
+const Sequence = @import("../sequence.zig").Sequence;
+const SequenceList = @import("../sequence.zig").SequenceList;
+const utils = @import("../utils.zig");
 
 pub fn FastaReader(comptime A: type) type {
     return struct {
@@ -66,9 +66,9 @@ pub fn FastaReader(comptime A: type) type {
     };
 }
 
-test "reads fasta" {
-    const DNA = @import("bio/alphabet/dna.zig").DNA;
+const DNA = @import("../bio/bio.zig").alphabet.DNA;
 
+test "reads fasta" {
     const allocator = std.testing.allocator;
 
     const fasta =
