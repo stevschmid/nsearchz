@@ -281,9 +281,7 @@ test "gaps" {
     var result = try extend_align.process(seq_one, seq_two, .forward, 0, 0, &cigar);
     try std.testing.expectEqual(@as(i32, 5), result.score); // 6 matches, 1 gap,  gap len = 1 - 3 - *
 
-    var cigar_str = try cigar.toStringAlloc(allocator);
-    defer allocator.free(cigar_str);
-    try std.testing.expectEqualStrings("2=2I4=", cigar_str);
+    try std.testing.expectEqualStrings("2=2I4=", cigar.str());
 }
 
 test "forward extend" {
@@ -305,10 +303,7 @@ test "forward extend" {
         try std.testing.expectEqual(result.pos_one, 3);
         try std.testing.expectEqual(result.pos_two, 3);
 
-        var cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-
-        try std.testing.expectEqualStrings("4=", cigar_str);
+        try std.testing.expectEqualStrings("4=", cigar.str());
     }
 
     {
@@ -319,10 +314,7 @@ test "forward extend" {
         try std.testing.expectEqual(result.pos_one, 3);
         try std.testing.expectEqual(result.pos_two, 3);
 
-        var cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-
-        try std.testing.expectEqualStrings("1=", cigar_str);
+        try std.testing.expectEqualStrings("1=", cigar.str());
     }
 
     {
@@ -333,10 +325,7 @@ test "forward extend" {
         try std.testing.expectEqual(result.pos_one, 4);
         try std.testing.expectEqual(result.pos_two, 4);
 
-        var cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-
-        try std.testing.expectEqualStrings("", cigar_str);
+        try std.testing.expectEqualStrings("", cigar.str());
     }
 }
 

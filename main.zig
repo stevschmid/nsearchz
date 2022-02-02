@@ -51,10 +51,7 @@ pub fn Worker(comptime DatabaseType: type) type {
                 try search.search(query, &hits);
 
                 for (hits.items.items) |hit| {
-                    const cigar_str = try hit.cigar.toStringAlloc(allocator);
-                    defer allocator.free(cigar_str);
-
-                    std.debug.print("Hello {s}\n", .{cigar_str});
+                    std.debug.print("Hello {s}\n", .{hit.cigar.str()});
                 }
 
                 allocator.destroy(node);

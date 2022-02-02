@@ -336,10 +336,7 @@ fn testAlign(one: []const u8, two: []const u8, dir: BandedAlignDirection, option
 
     var score = try banded_align.process(seq_one, seq_two, dir, start_one, start_two, end_one, end_two, &cigar);
 
-    var cigar_str = try cigar.toStringAlloc(allocator);
-    defer allocator.free(cigar_str);
-
-    try std.testing.expectEqualStrings(cigar_str, expected_cigar_str);
+    try std.testing.expectEqualStrings(expected_cigar_str, cigar.str());
 
     return score;
 }
@@ -415,9 +412,7 @@ test "Breaking case: Improper reset of vertical gap at 0,0" {
 
         score1 = try banded_align.process(seq_one, seq_two, .forward, 1, 1, null, null, &cigar);
 
-        var cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-        try std.testing.expectEqualStrings("1=3X3D", cigar_str);
+        try std.testing.expectEqualStrings("1=3X3D", cigar.str());
     }
 
     // This alignment will set mVerticalGaps[0] to a low value, which will be
@@ -436,9 +431,7 @@ test "Breaking case: Improper reset of vertical gap at 0,0" {
 
         score2 = try banded_align.process(seq_one, seq_two, .forward, 1, 1, null, null, &cigar);
 
-        var cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-        try std.testing.expectEqualStrings("1=3X3D", cigar_str);
+        try std.testing.expectEqualStrings("1=3X3D", cigar.str());
     }
 
     try std.testing.expectEqual(score1, score2);

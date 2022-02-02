@@ -54,16 +54,21 @@ pub const Cigar = struct {
         std.mem.reverse(Entry, self.entries.items);
     }
 
-    pub fn toStringAlloc(self: Self, allocator: std.mem.Allocator) ![]u8 {
-        var str = std.ArrayList(u8).init(allocator);
+    pub fn str(self: Self) []const u8 {
+        // let's try this nifty local buffer thingy by idtech idStr
+        const S = struct {
+            threadlocal var buffer: [10_000]u8 = undefined;
+        };
+
+        var fbs = std.io.fixedBufferStream(&S.buffer);
         var buf: [128]u8 = undefined;
 
         for (self.entries.items) |entry| {
-            const xyz = try std.fmt.bufPrint(buf[0..], "{}{c}", .{ entry.count, @enumToInt(entry.op) });
-            try str.appendSlice(xyz);
+            const xyz = std.fmt.bufPrint(&buf, "{}{c}", .{ entry.count, @enumToInt(entry.op) }) catch &[_]u8{};
+            _ = fbs.write(xyz) catch 0;
         }
 
-        return str.toOwnedSlice();
+        return fbs.getWritten();
     }
 
     pub fn identity(self: Self) f32 {
@@ -110,10 +115,7 @@ test "basic add" {
     try cigar.add(CigarOp.insertion);
     try cigar.add(CigarOp.match);
 
-    const cigar_str = try cigar.toStringAlloc(allocator);
-    defer allocator.free(cigar_str);
-
-    try std.testing.expectEqualStrings("2=1X3D2I1=", cigar_str);
+    try std.testing.expectEqualStrings("2=1X3D2I1=", cigar.str());
 }
 
 test "append other cigar" {
@@ -137,9 +139,7 @@ test "append other cigar" {
 
         try cigar.appendOther(other_cigar);
 
-        const cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-        try std.testing.expectEqualStrings("2=1X1=1D", cigar_str);
+        try std.testing.expectEqualStrings("2=1X1=1D", cigar.str());
     }
 
     // tail matches, expand
@@ -156,8 +156,6 @@ test "append other cigar" {
 
         try cigar.appendOther(other_cigar);
 
-        const cigar_str = try cigar.toStringAlloc(allocator);
-        defer allocator.free(cigar_str);
-        try std.testing.expectEqualStrings("2=3X1D", cigar_str);
+        try std.testing.expectEqualStrings("2=3X1D", cigar.str());
     }
 }
