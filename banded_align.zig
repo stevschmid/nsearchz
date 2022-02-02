@@ -29,18 +29,20 @@ pub fn BandedAlign(comptime A: type) type {
             score: i32 = MinScore,
             is_terminal: bool = false,
 
-            pub fn openOrExtend(self: *Gap, banded_align: *Self, score: i32, is_terminal: bool, length: usize) void {
+            pub fn openOrExtend(self: *Gap, options: BandedAlignOptions, score: i32, is_terminal: bool, length: usize) void {
                 var new_gap_score: i32 = score;
 
-                const o = banded_align.options;
-                const gap_open_score = if (is_terminal) o.gap_terminal_open_score else o.gap_interior_open_score;
-                const gap_extend_score = if (is_terminal) o.gap_terminal_extend_score else o.gap_interior_extend_score;
-
-                if (length > 0) {
-                    new_gap_score += gap_open_score + @intCast(i32, length) * gap_extend_score;
+                if (is_terminal) {
+                    new_gap_score += options.gap_terminal_open_score + @intCast(i32, length) * options.gap_terminal_extend_score;
+                } else {
+                    new_gap_score += options.gap_interior_open_score + @intCast(i32, length) * options.gap_interior_extend_score;
                 }
 
-                self.score += @intCast(i32, length) * gap_extend_score;
+                if (self.is_terminal) {
+                    self.score += @intCast(i32, length) * options.gap_terminal_extend_score;
+                } else {
+                    self.score += @intCast(i32, length) * options.gap_interior_extend_score;
+                }
 
                 if (new_gap_score > self.score) {
                     self.score = new_gap_score;
@@ -141,7 +143,7 @@ pub fn BandedAlign(comptime A: type) type {
 
             scores[0] = 0;
             vertical_gaps[0].reset();
-            vertical_gaps[0].openOrExtend(self, scores[0], is_beginning_two, 1);
+            vertical_gaps[0].openOrExtend(self.options, scores[0], is_beginning_two, 1);
 
             var horizontal_gap = Gap{};
 
@@ -150,7 +152,7 @@ pub fn BandedAlign(comptime A: type) type {
                 if (x > bw and height > 1) // only break on BW bound if B is not empty
                     break;
 
-                horizontal_gap.openOrExtend(self, scores[x - 1], is_beginning_one, 1);
+                horizontal_gap.openOrExtend(self.options, scores[x - 1], is_beginning_one, 1);
                 scores[x] = horizontal_gap.score;
                 ops[x] = CigarOp.insertion;
                 vertical_gaps[x].reset();
@@ -217,6 +219,7 @@ pub fn BandedAlign(comptime A: type) type {
 
                     // Record op
                     var op: CigarOp = undefined;
+
                     if (score == horizontal_gap.score) {
                         op = CigarOp.insertion;
                     } else if (score == vertical_gap.score) {
@@ -232,8 +235,8 @@ pub fn BandedAlign(comptime A: type) type {
                     const is_gap_terminal_one = (x == 0 or x == width - 1) and is_ending_one;
                     const is_gap_terminal_two = (y == 0 or y == height - 1) and is_ending_two;
 
-                    horizontal_gap.openOrExtend(self, score, is_gap_terminal_two, 1);
-                    vertical_gap.openOrExtend(self, score, is_gap_terminal_one, 1);
+                    horizontal_gap.openOrExtend(self.options, score, is_gap_terminal_two, 1);
+                    vertical_gap.openOrExtend(self.options, score, is_gap_terminal_one, 1);
                 }
 
                 if (right_bound + 1 < width) {
@@ -285,7 +288,7 @@ pub fn BandedAlign(comptime A: type) type {
                 // We reached the end of A, emulate going down on B (vertical gaps)
                 const num_remaining = height - y;
                 const vertical_gap = &vertical_gaps[x - 1];
-                vertical_gap.openOrExtend(self, score, vertical_gap.is_terminal, num_remaining);
+                vertical_gap.openOrExtend(self.options, score, vertical_gap.is_terminal, num_remaining);
                 score = vertical_gap.score;
 
                 var pad = num_remaining;
@@ -295,7 +298,7 @@ pub fn BandedAlign(comptime A: type) type {
             } else if (y == height) {
                 // We reached the end of B, emulate going down on A (horizontal gaps)
                 const num_remaining = width - x;
-                horizontal_gap.openOrExtend(self, score, horizontal_gap.is_terminal, num_remaining);
+                horizontal_gap.openOrExtend(self.options, score, horizontal_gap.is_terminal, num_remaining);
                 score = horizontal_gap.score;
 
                 var pad = num_remaining;

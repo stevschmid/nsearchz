@@ -19,7 +19,7 @@ const utils = @import("utils.zig");
 pub const SearchOptions = struct {
     max_accepts: u32 = 1,
     max_rejects: u32 = 16,
-    min_identity: f32 = 0.8,
+    min_identity: f32 = 0.75,
 };
 
 pub const SearchHit = struct {
@@ -214,6 +214,7 @@ pub fn Search(comptime DatabaseType: type) type {
                 defer align_parts.deinit();
 
                 for (sps.items) |sp| {
+                    // TODO: can we use already aligned parts to check out if this seed is part of the an already extended seed, so we can save
                     var left_result = try self.extend_align.process(query, seq, .backward, sp.start_one, sp.start_two, &left_cigar);
                     var right_result = try self.extend_align.process(query, seq, .forward, sp.end_one + 1, sp.end_two + 1, &right_cigar);
 
@@ -223,8 +224,10 @@ pub fn Search(comptime DatabaseType: type) type {
                     if (align_part.hsp.length() < min_hsp_length)
                         continue;
 
-                    var pos_one = align_part.hsp.start_one;
-                    var pos_two = align_part.hsp.start_two;
+                    var pos_one = sp.start_one;
+                    var pos_two = sp.start_two;
+
+                    try align_part.cigar.appendOther(left_cigar);
 
                     // Construct full hsp (spaced seeds so we cannot assume full match)
                     align_part.score = left_result.score;
@@ -292,17 +295,18 @@ pub fn Search(comptime DatabaseType: type) type {
                     _ = try self.banded_align.process(query, seq, .backward, first_part.hsp.start_one, first_part.hsp.start_two, null, null, &cigar);
                     try final_cigar.appendOther(cigar);
 
-                    for (chain.items) |part, part_index| {
-                        try final_cigar.appendOther(part.cigar);
+                    index = 0;
+                    while (index + 1 < chain.items.len) : (index += 1) {
+                        const part = chain.items[index];
+                        const next_part = chain.items[index + 1];
 
-                        if (part_index + 1 < chain.items.len) {
-                            const next_part = &chain.items[part_index + 1];
-                            _ = try self.banded_align.process(query, seq, .forward, part.hsp.end_one + 1, part.hsp.end_two + 1, next_part.hsp.start_one, next_part.hsp.start_two, &cigar);
-                            try final_cigar.appendOther(cigar);
-                        }
+                        try final_cigar.appendOther(part.cigar);
+                        _ = try self.banded_align.process(query, seq, .forward, part.hsp.end_one + 1, part.hsp.end_two + 1, next_part.hsp.start_one, next_part.hsp.start_two, &cigar);
+                        try final_cigar.appendOther(cigar);
                     }
 
                     // Align last HSP's end to whole sequences end
+                    try final_cigar.appendOther(last_part.cigar);
                     _ = try self.banded_align.process(query, seq, .forward, last_part.hsp.end_one + 1, last_part.hsp.end_two + 1, null, null, &cigar);
                     try final_cigar.appendOther(cigar);
 
@@ -330,6 +334,12 @@ pub fn Search(comptime DatabaseType: type) type {
             self.banded_align.deinit();
             self.kmers.deinit();
             self.allocator.free(self.hits_by_seq);
+        }
+
+        fn printCigar(self: *Self, cigar: Cigar) !void {
+            var cigar_str = try cigar.toStringAlloc(self.allocator);
+            defer self.allocator.free(cigar_str);
+            std.debug.print("Cigar {s}\n", .{cigar_str});
         }
     };
 }
