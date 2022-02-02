@@ -32,10 +32,12 @@ pub fn BandedAlign(comptime A: type) type {
             pub fn openOrExtend(self: *Gap, options: BandedAlignOptions, score: i32, is_terminal: bool, length: usize) void {
                 var new_gap_score: i32 = score;
 
-                if (is_terminal) {
-                    new_gap_score += options.gap_terminal_open_score + @intCast(i32, length) * options.gap_terminal_extend_score;
-                } else {
-                    new_gap_score += options.gap_interior_open_score + @intCast(i32, length) * options.gap_interior_extend_score;
+                if (length > 0) {
+                    if (is_terminal) {
+                        new_gap_score += options.gap_terminal_open_score + @intCast(i32, length) * options.gap_terminal_extend_score;
+                    } else {
+                        new_gap_score += options.gap_interior_open_score + @intCast(i32, length) * options.gap_interior_extend_score;
+                    }
                 }
 
                 if (self.is_terminal) {

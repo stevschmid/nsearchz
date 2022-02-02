@@ -66,7 +66,7 @@ pub const Cigar = struct {
         return str.toOwnedSlice();
     }
 
-    pub fn identity(self: *Self) f32 {
+    pub fn identity(self: Self) f32 {
         var letters: usize = 0;
         var matches: usize = 0;
 
