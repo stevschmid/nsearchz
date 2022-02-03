@@ -51,5 +51,9 @@ pub fn Sequence(comptime A: type) type {
                 letter.* = A.complement(letter.*);
             }
         }
+
+        pub fn length(self: Self) usize {
+            return self.data.len;
+        }
     };
 }

@@ -30,7 +30,7 @@ pub const Cigar = struct {
         return cloned;
     }
 
-    pub fn isEmpty(self: *Self) bool {
+    pub fn isEmpty(self: Self) bool {
         return self.entries.items.len == 0;
     }
 

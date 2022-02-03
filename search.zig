@@ -22,27 +22,33 @@ pub const SearchOptions = struct {
     min_identity: f32 = 0.75,
 };
 
-pub const SearchHit = struct {
-    const Self = @This();
+pub fn SearchHit(comptime A: type) type {
+    return struct {
+        const Self = @This();
 
-    allocator: std.mem.Allocator,
-    db_seq_id: usize,
-    cigar: Cigar,
+        allocator: std.mem.Allocator,
+        target: Sequence(A),
+        cigar: Cigar,
 
-    pub fn init(allocator: std.mem.Allocator) Self {
-        return Self{
-            .allocator = allocator,
-            .cigar = Cigar.init(allocator),
-            .db_seq_id = undefined,
-        };
-    }
+        pub fn init(allocator: std.mem.Allocator, target: Sequence(A), cigar: Cigar) !Self {
+            return Self{
+                .allocator = allocator,
+                .cigar = try cigar.clone(),
+                .target = try target.clone(),
+            };
+        }
 
-    pub fn deinit(self: *Self) void {
-        self.cigar.deinit();
-    }
-};
+        pub fn deinit(self: *Self) void {
+            self.cigar.deinit();
+            self.target.deinit();
+        }
+    };
+}
 
-pub const SearchHitList = utils.ArrayListDeinitWrapper(SearchHit);
+pub fn SearchHitList(comptime A: type) type {
+    return utils.ArrayListDeinitWrapper(SearchHit(A));
+}
+
 const ArrayPartList = utils.ArrayListDeinitWrapper(AlignPart);
 
 const AlignPart = struct {
@@ -106,7 +112,7 @@ pub fn Search(comptime DatabaseType: type) type {
             };
         }
 
-        pub fn search(self: *Self, query: Sequence(A), hits: *SearchHitList) !void {
+        pub fn search(self: *Self, query: Sequence(A), hits: *SearchHitList(A)) !void {
             const min_hsp_length = std.math.min(DefaultMinHspLength, query.data.len / 2);
             const max_hsp_join_distance = DefaultMaxHSPJoinDistance;
             _ = min_hsp_length;
@@ -313,11 +319,7 @@ pub fn Search(comptime DatabaseType: type) type {
 
                     var accept = (final_cigar.identity() >= self.options.min_identity);
                     if (accept) {
-                        var hit = SearchHit.init(hits.allocator);
-                        hit.db_seq_id = seq_id;
-                        try hit.cigar.appendOther(final_cigar);
-
-                        try hits.list.append(hit);
+                        try hits.list.append(try SearchHit(A).init(hits.allocator, seq, final_cigar));
 
                         num_hits += 1;
                     } else {
@@ -359,13 +361,13 @@ test "check" {
         var search = try Search(databaseType).init(allocator, &database, .{});
         defer search.deinit();
 
-        var hits = SearchHitList.init(allocator);
+        var hits = SearchHitList(alphabet.DNA).init(allocator);
         defer hits.deinit();
 
         try search.search(query, &hits);
 
         try std.testing.expectEqual(@as(usize, 1), hits.list.items.len);
-        try std.testing.expectEqualStrings("DB1", database.sequences[hits.list.items[0].db_seq_id].identifier);
+        try std.testing.expectEqualStrings("DB1", hits.list.items[0].target.identifier);
     }
 
     // try accepts 2, other sequence is still low
@@ -373,7 +375,7 @@ test "check" {
         var search = try Search(databaseType).init(allocator, &database, .{ .max_accepts = 2 });
         defer search.deinit();
 
-        var hits = SearchHitList.init(allocator);
+        var hits = SearchHitList(alphabet.DNA).init(allocator);
         defer hits.deinit();
 
         try search.search(query, &hits);
@@ -387,7 +389,7 @@ test "check" {
         var search = try Search(databaseType).init(allocator, &database, .{ .max_accepts = 2, .min_identity = 0.5 });
         defer search.deinit();
 
-        var hits = SearchHitList.init(allocator);
+        var hits = SearchHitList(alphabet.DNA).init(allocator);
         defer hits.deinit();
 
         try search.search(query, &hits);
@@ -414,7 +416,7 @@ test "search multiple" {
     var query1 = try Sequence(alphabet.DNA).init(allocator, "Query 1 ", "TGAGACGATGCAAA");
     defer query1.deinit();
 
-    var hits1 = SearchHitList.init(allocator);
+    var hits1 = SearchHitList(alphabet.DNA).init(allocator);
     defer hits1.deinit();
 
     try search.search(query1, &hits1);
@@ -423,7 +425,7 @@ test "search multiple" {
     var query2 = try Sequence(alphabet.DNA).init(allocator, "Query 1 ", "CGTTATATTCGGAGACCTAT");
     defer query2.deinit();
 
-    var hits2 = SearchHitList.init(allocator);
+    var hits2 = SearchHitList(alphabet.DNA).init(allocator);
     defer hits2.deinit();
 
     try search.search(query2, &hits2);
@@ -447,7 +449,7 @@ test "ultrasequence" {
     var search = try Search(databaseType).init(allocator, &database, .{ .min_identity = 0.5 });
     defer search.deinit();
 
-    var hits = SearchHitList.init(allocator);
+    var hits = SearchHitList(alphabet.DNA).init(allocator);
     defer hits.deinit();
 
     try search.search(query, &hits);

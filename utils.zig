@@ -20,6 +20,15 @@ pub fn ArrayListDeinitWrapper(comptime T: type) type {
             };
         }
 
+        pub fn clone(self: Self) !Self {
+            var cloned = Self.init(self.allocator);
+
+            for (self.list.items) |item|
+                cloned.list.append(try item.clone());
+
+            return cloned;
+        }
+
         pub fn deinit(self: *Self) void {
             for (self.list.items) |*item|
                 item.deinit();
