@@ -58,6 +58,20 @@ pub const Cigar = struct {
         }
     }
 
+    pub fn popOp(self: *Self) ?CigarOp {
+        if (self.entries.items.len == 0)
+            return null;
+
+        var first_entry = &self.entries.items[0];
+        first_entry.count -= 1;
+
+        if (first_entry.count == 0) {
+            return self.entries.orderedRemove(0).op;
+        } else {
+            return first_entry.op;
+        }
+    }
+
     pub fn reverse(self: *Self) void {
         std.mem.reverse(Entry, self.entries.items);
     }
@@ -114,16 +128,35 @@ test "basic add" {
     var cigar = Cigar.init(allocator);
     defer cigar.deinit();
 
-    try cigar.add(CigarOp.match);
-    try cigar.add(CigarOp.match);
-    try cigar.add(CigarOp.mismatch);
-    try cigar.add(CigarOp.deletion);
-    try cigar.addWithCount(CigarOp.deletion, 2);
-    try cigar.add(CigarOp.insertion);
-    try cigar.add(CigarOp.insertion);
-    try cigar.add(CigarOp.match);
+    try cigar.add(.match);
+    try cigar.add(.match);
+    try cigar.add(.mismatch);
+    try cigar.add(.deletion);
+    try cigar.addWithCount(.deletion, 2);
+    try cigar.add(.insertion);
+    try cigar.add(.insertion);
+    try cigar.add(.match);
 
     try std.testing.expectEqualStrings("2=1X3D2I1=", cigar.str());
+}
+
+test "pop op" {
+    const allocator = std.testing.allocator;
+
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
+
+    try cigar.add(.match);
+    try cigar.add(.mismatch);
+    try cigar.addWithCount(.insertion, 2);
+    try cigar.add(.match);
+
+    try std.testing.expectEqual(CigarOp.match, cigar.popOp().?);
+    try std.testing.expectEqual(CigarOp.mismatch, cigar.popOp().?);
+    try std.testing.expectEqual(CigarOp.insertion, cigar.popOp().?);
+    try std.testing.expectEqual(CigarOp.insertion, cigar.popOp().?);
+    try std.testing.expectEqual(CigarOp.match, cigar.popOp().?);
+    try std.testing.expect(cigar.popOp() == null);
 }
 
 test "append other cigar" {
@@ -137,13 +170,13 @@ test "append other cigar" {
     // tail does not match, simple append
     {
         cigar.clear();
-        try cigar.add(CigarOp.match);
-        try cigar.add(CigarOp.match);
-        try cigar.add(CigarOp.mismatch);
+        try cigar.add(.match);
+        try cigar.add(.match);
+        try cigar.add(.mismatch);
 
         other_cigar.clear();
-        try other_cigar.add(CigarOp.match);
-        try other_cigar.add(CigarOp.deletion);
+        try other_cigar.add(.match);
+        try other_cigar.add(.deletion);
 
         try cigar.appendOther(other_cigar);
 
@@ -153,14 +186,14 @@ test "append other cigar" {
     // tail matches, expand
     {
         cigar.clear();
-        try cigar.add(CigarOp.match);
-        try cigar.add(CigarOp.match);
-        try cigar.add(CigarOp.mismatch);
+        try cigar.add(.match);
+        try cigar.add(.match);
+        try cigar.add(.mismatch);
 
         other_cigar.clear();
-        try other_cigar.add(CigarOp.mismatch);
-        try other_cigar.add(CigarOp.mismatch);
-        try other_cigar.add(CigarOp.deletion);
+        try other_cigar.add(.mismatch);
+        try other_cigar.add(.mismatch);
+        try other_cigar.add(.deletion);
 
         try cigar.appendOther(other_cigar);
 

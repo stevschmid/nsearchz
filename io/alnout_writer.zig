@@ -33,6 +33,8 @@ const Cigar = @import("../cigar.zig").Cigar;
 // 27 cols, 22 ids (81.5%), 2 gaps (7.4%)
 
 pub fn AlnoutWriter(comptime A: type) type {
+    const MaxColumnsPerAlignmentLine = 60;
+
     return struct {
         pub fn write(writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
             try std.fmt.format(writer, "Query >{s}\n", .{query.identifier});
@@ -56,104 +58,134 @@ pub fn AlnoutWriter(comptime A: type) type {
                 var query_idx: usize = 0;
                 var target_idx: usize = 0;
 
-                var ops = hit.cigar.entries.items;
+                var cigar = try hit.cigar.clone();
+                defer cigar.deinit();
 
-                const first = ops[0];
+                const first = cigar.entries.items[0];
                 switch (first.op) {
                     .deletion => {
                         target_idx = first.count;
-                        ops = ops[1..];
+                        _ = cigar.entries.orderedRemove(0);
                     },
                     .insertion => {
                         query_idx = first.count;
-                        ops = ops[1..];
+                        _ = cigar.entries.orderedRemove(0);
                     },
                     else => {},
                 }
 
-                const last = ops[ops.len - 1];
+                const last = cigar.entries.items[cigar.entries.items.len - 1];
                 switch (last.op) {
-                    .deletion => {
-                        ops = ops[0 .. ops.len - 1];
-                    },
-                    .insertion => {
-                        ops = ops[0 .. ops.len - 1];
-                    },
+                    .deletion, .insertion => _ = cigar.entries.orderedRemove(cigar.entries.items.len - 1),
                     else => {},
                 }
 
                 const max_length = std.math.max(query.length(), hit.target.length());
 
-                // Qry  1 + GGTGAGACGTTACGCAATAAATTGA 25
-                try std.fmt.format(writer, "Qry ", .{});
-                try printLength(writer, max_length, target_idx + 1);
+                var top_cigar = try cigar.clone();
+                defer top_cigar.deinit();
+                var middle_cigar = try cigar.clone();
+                defer middle_cigar.deinit();
+                var bottom_cigar = try cigar.clone();
+                defer bottom_cigar.deinit();
 
-                try std.fmt.format(writer, " + ", .{});
+                while (!top_cigar.isEmpty()) {
+                    // Qry  1 + GGTGAGACGTTACGCAATAAATTGA 25
+                    try std.fmt.format(writer, "Qry ", .{});
+                    try printLength(writer, max_length, query_idx + 1);
 
-                for (ops) |op| {
+                    try std.fmt.format(writer, " + ", .{});
+
                     var count: usize = 0;
-                    while (count < op.count) : (count += 1) {
+                    while (top_cigar.popOp()) |op| {
                         var ch = query.data[query_idx];
-                        switch (op.op) {
+                        switch (op) {
                             .match, .mismatch, .insertion => query_idx += 1,
                             .deletion => ch = '-',
                         }
 
                         try std.fmt.format(writer, "{c}", .{ch});
+
+                        count += 1;
+                        if (count % MaxColumnsPerAlignmentLine == 0)
+                            break;
                     }
-                }
 
-                try std.fmt.format(writer, " ", .{});
-                try printLength(writer, max_length, query_idx);
-                try std.fmt.format(writer, "\n", .{});
+                    try std.fmt.format(writer, " ", .{});
+                    try printLength(writer, max_length, query_idx);
+                    try std.fmt.format(writer, "\n", .{});
 
-                //          |||||||||||||||||||||||||
-                try std.fmt.format(writer, "    ", .{});
-                try printPadding(writer, max_length);
-                try std.fmt.format(writer, "   ", .{});
+                    //          |||||||||||||||||||||||||
+                    try std.fmt.format(writer, "    ", .{});
+                    try printPadding(writer, max_length);
+                    try std.fmt.format(writer, "   ", .{});
 
-                for (ops) |op| {
-                    const ch: u8 = switch (op.op) {
-                        .match => '|',
-                        else => ' ',
-                    };
-
-                    var count: usize = 0;
-                    while (count < op.count) : (count += 1) {
+                    count = 0;
+                    while (middle_cigar.popOp()) |op| {
+                        const ch: u8 = switch (op) {
+                            .match => '|',
+                            else => ' ',
+                        };
                         try std.fmt.format(writer, "{c}", .{ch});
+
+                        count += 1;
+                        if (count % MaxColumnsPerAlignmentLine == 0)
+                            break;
                     }
-                }
 
-                try std.fmt.format(writer, " ", .{});
-                try printPadding(writer, max_length);
-                try std.fmt.format(writer, "\n", .{});
+                    try std.fmt.format(writer, " ", .{});
+                    try printPadding(writer, max_length);
+                    try std.fmt.format(writer, "\n", .{});
 
-                // Tgt  1 + GGTGAGACGTTACGCAATAAATTGA 25
-                try std.fmt.format(writer, "Tgt ", .{});
-                try printLength(writer, max_length, target_idx + 1);
+                    // Tgt  1 + GGTGAGACGTTACGCAATAAATTGA 25
+                    try std.fmt.format(writer, "Tgt ", .{});
+                    try printLength(writer, max_length, target_idx + 1);
 
-                try std.fmt.format(writer, " + ", .{});
+                    try std.fmt.format(writer, " + ", .{});
 
-                for (ops) |op| {
-                    var count: usize = 0;
-                    while (count < op.count) : (count += 1) {
+                    count = 0;
+                    while (bottom_cigar.popOp()) |op| {
                         var ch = hit.target.data[target_idx];
-                        switch (op.op) {
+                        switch (op) {
                             .match, .mismatch, .deletion => target_idx += 1,
                             .insertion => ch = '-',
                         }
 
                         try std.fmt.format(writer, "{c}", .{ch});
+
+                        count += 1;
+                        if (count % MaxColumnsPerAlignmentLine == 0)
+                            break;
                     }
+
+                    try std.fmt.format(writer, " ", .{});
+                    try printLength(writer, max_length, target_idx);
+                    try std.fmt.format(writer, "\n", .{});
                 }
 
-                try std.fmt.format(writer, " ", .{});
-                try printLength(writer, max_length, target_idx);
                 try std.fmt.format(writer, "\n", .{});
 
-                try std.fmt.format(writer, "\n", .{});
+                // Calc stats
+                var num_cols: usize = 0;
+                var num_matches: usize = 0;
+                var num_gaps: usize = 0;
+
+                while (cigar.popOp()) |op| {
+                    switch (op) {
+                        .match => num_matches += 1,
+                        .insertion, .deletion => num_gaps += 1,
+                        .mismatch => {},
+                    }
+
+                    num_cols += 1;
+                }
 
                 // 25 cols, 25 ids (100.0%), 0 gaps (0.0%)
+                const ids_percent = 100.0 * @intToFloat(f32, num_matches) / @intToFloat(f32, num_cols);
+                const gaps_percent = 100.0 * @intToFloat(f32, num_gaps) / @intToFloat(f32, num_cols);
+                try std.fmt.format(writer, "{d} cols, {d} ids ({d:.1}%), {d} gaps ({d:.1}%)\n", .{ num_cols, num_matches, ids_percent, num_gaps, gaps_percent });
+
+                try std.fmt.format(writer, "\n", .{});
             }
         }
 
@@ -238,28 +270,15 @@ test "writes correctly" {
     try std.testing.expectEqualStrings("Qry  1 + GGTGAGACGTTACGCAATAAATTGA 25", it.next().?);
     try std.testing.expectEqualStrings("         |||||||||||||||||||||||||   ", it.next().?);
     try std.testing.expectEqualStrings("Tgt  1 + GGTGAGACGTTACGCAATAAATTGA 25", it.next().?);
-
-    // Query >QryId
-    //  %Id   TLen  Target
-    // 100%     25  DbId3
-    //  81%     33  DbId1
-
-    //  Query 27nt >QryId
-    // Target 25nt >DbId3
-
-    // Qry  1 + GGTGAGACGTTACGCAATAAATTGA 25
-    //          |||||||||||||||||||||||||
-    // Tgt  1 + GGTGAGACGTTACGCAATAAATTGA 25
-
-    // 25 cols, 25 ids (100.0%), 0 gaps (0.0%)
-
-    //  Query 27nt >QryId
-    // Target 33nt >DbId1
-
-    // Qry  1 + GGTGAGACGTTACGCAATAAATTGAGA 27
-    //           ||||||||  | |||| |||||||||
-    // Tgt  3 + CGTGAGACG--ATGCAAAAAATTGAGA 27
-
-    // 27 cols, 22 ids (81.5%), 2 gaps (7.4%)
-
+    try std.testing.expectEqualStrings("", it.next().?);
+    try std.testing.expectEqualStrings("25 cols, 25 ids (100.0%), 0 gaps (0.0%)", it.next().?);
+    try std.testing.expectEqualStrings("", it.next().?);
+    try std.testing.expectEqualStrings(" Query 27nt >QryId", it.next().?);
+    try std.testing.expectEqualStrings("Target 33nt >DbId1", it.next().?);
+    try std.testing.expectEqualStrings("", it.next().?);
+    try std.testing.expectEqualStrings("Qry  1 + GGTGAGACGTTACGCAATAAATTGAGA 27", it.next().?);
+    try std.testing.expectEqualStrings("          ||||||||  | |||| |||||||||   ", it.next().?);
+    try std.testing.expectEqualStrings("Tgt  3 + CGTGAGACG--ATGCAAAAAATTGAGA 27", it.next().?);
+    try std.testing.expectEqualStrings("", it.next().?);
+    try std.testing.expectEqualStrings("27 cols, 22 ids (81.5%), 2 gaps (7.4%)", it.next().?);
 }
