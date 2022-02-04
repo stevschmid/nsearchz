@@ -52,6 +52,19 @@ pub const Cigar = struct {
         try self.addWithCount(op, 1);
     }
 
+    pub fn addFromString(self: *Self, s: []const u8) !void {
+        var counts = std.mem.tokenize(u8, s, "=XDI");
+        var ops = std.mem.tokenize(u8, s, "0123456789");
+
+        while (counts.next()) |count| {
+            var op = ops.next();
+            if (op == null)
+                break;
+
+            try self.addWithCount(@intToEnum(CigarOp, op.?[0]), try std.fmt.parseInt(usize, count, 10));
+        }
+    }
+
     pub fn appendOther(self: *Self, other: Self) !void {
         for (other.entries.items) |other_entry| {
             try self.addWithCount(other_entry.op, other_entry.count);
@@ -199,4 +212,14 @@ test "append other cigar" {
 
         try std.testing.expectEqualStrings("2=3X1D", cigar.str());
     }
+}
+
+test "addFromString" {
+    const allocator = std.testing.allocator;
+
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
+
+    try cigar.addFromString("5=2I3X25=3D");
+    try std.testing.expectEqualStrings("5=2I3X25=3D", cigar.str());
 }

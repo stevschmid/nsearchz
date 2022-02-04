@@ -211,7 +211,7 @@ pub fn AlnoutWriter(comptime A: type) type {
     };
 }
 
-test "writes correctly" {
+test "multiple hits per query" {
     const DNA = alphabet.DNA;
 
     const allocator = std.testing.allocator;
