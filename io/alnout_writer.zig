@@ -161,9 +161,9 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try std.fmt.format(writer, " ", .{});
                     try printLength(writer, max_length, target_idx);
                     try std.fmt.format(writer, "\n", .{});
-                }
 
-                try std.fmt.format(writer, "\n", .{});
+                    try std.fmt.format(writer, "\n", .{});
+                }
 
                 // Calc stats
                 var num_cols: usize = 0;
@@ -211,11 +211,10 @@ pub fn AlnoutWriter(comptime A: type) type {
     };
 }
 
-test "multiple hits per query" {
-    const DNA = alphabet.DNA;
+const DNA = alphabet.DNA;
 
+test "multiple hits per query" {
     const allocator = std.testing.allocator;
-    _ = allocator;
 
     var query = try Sequence(DNA).init(allocator, "QryId", "GGTGAGACGTTACGCAATAAATTGAGA");
     defer query.deinit();
@@ -282,3 +281,88 @@ test "multiple hits per query" {
     try std.testing.expectEqualStrings("", it.next().?);
     try std.testing.expectEqualStrings("27 cols, 22 ids (81.5%), 2 gaps (7.4%)", it.next().?);
 }
+
+test "dna" {
+    const allocator = std.testing.allocator;
+
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
+
+    var hits = SearchHitList(DNA).init(allocator);
+    defer hits.deinit();
+
+    // 2D1X8=2I1=1X4=1X9=1I
+    var query = try Sequence(DNA).init(allocator, "Procavia capensis", "CUUUGCCUGAACGCAAGACUCUUCAACCUCAGGACUUGCAGAAUUGGUAGAAUGCCGUCCUAAGGUUGUUGAGUUCUGUGUUUGGAGGC");
+    defer query.deinit();
+
+    var target = try Sequence(DNA).init(allocator, "Dasypus novemcinctus", "CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCCUAAGGUUGUUGAGUUCUGCGUUUCUGGGC");
+    defer target.deinit();
+
+    try cigar.addFromString("1=1X1=2X7=1X2=1X11=1X17=2X1=1X29=1X4=3X3=");
+    try hits.list.append(try SearchHit(DNA).init(allocator, target, cigar));
+
+    var buffer: [1000]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try AlnoutWriter(DNA).write(fbs.writer(), query, hits);
+
+    const expected =
+        \\Query >Procavia capensis
+        \\ %Id   TLen  Target
+        \\ 85%     89  Dasypus novemcinctus
+        \\
+        \\ Query 89nt >Procavia capensis
+        \\Target 89nt >Dasypus novemcinctus
+        \\
+        \\Qry  1 + CUUUGCCUGAACGCAAGACUCUUCAACCUCAGGACUUGCAGAAUUGGUAGAAUGCCGUCC 60
+        \\         | |  ||||||| || ||||||||||| |||||||||||||||||  | |||||||||||   
+        \\Tgt  1 + CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCC 60
+        \\
+        \\Qry 61 + UAAGGUUGUUGAGUUCUGUGUUUGGAGGC 89
+        \\         |||||||||||||||||| ||||   |||   
+        \\Tgt 61 + UAAGGUUGUUGAGUUCUGCGUUUCUGGGC 89
+        \\
+        \\89 cols, 76 ids (85.4%), 0 gaps (0.0%)
+        \\
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, fbs.getWritten());
+}
+
+// auto entry = std::make_pair(
+//   Sequence< DNA >( "RF00966;mir-676;ABRQ01840532.1/340-428   9813:Procavia "
+//                    "capensis (cape rock hyrax)",
+//                    "CUUUGCCUGAACGCAAGACUCUUCAACCUCAGGACUUGCAGAAUUGGUAGA"
+//                    "AUGCCGUCCUAAGGUUGUUGAGUUCUGUGUUUGGAGGC" ),
+//   HitList< DNA >( {
+//     { { "RF00966;mir-676;AAGV020395671.1/1356-1444   9361:Dasypus "
+//         "novemcinctus (nine-banded armadillo)",
+//         "CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCCUAAGGU"
+//         "UGUUGAGUUCUGCGUUUCUGGGC" },
+//       "1=1X1=2X7=1X2=1X11=1X17=2X1=1X29=1X4=3X3=" },
+//   } ) );
+
+// std::ostringstream oss;
+// Alnout::Writer< DNA > writer( oss );
+
+// SECTION( "Default" ) {
+//   writer << entry;
+//   REQUIRE( oss.str() == AlnoutOutputForDNA );
+// }
+
+// const char AlnoutOutputForDNA[] = R"(Query >RF00966;mir-676;ABRQ01840532.1/340-428   9813:Procavia capensis (cape rock hyrax)
+//  %Id   TLen  Target
+//  85%     89  RF00966;mir-676;AAGV020395671.1/1356-1444   9361:Dasypus novemcinctus (nine-banded armadillo)
+
+//  Query 89nt >RF00966;mir-676;ABRQ01840532.1/340-428   9813:Procavia capensis (cape rock hyrax)
+// Target 89nt >RF00966;mir-676;AAGV020395671.1/1356-1444   9361:Dasypus novemcinctus (nine-banded armadillo)
+
+// Qry  1 + CUUUGCCUGAACGCAAGACUCUUCAACCUCAGGACUUGCAGAAUUGGUAGAAUGCCGUCC 60
+//          | |  ||||||| || ||||||||||| |||||||||||||||||  | |||||||||||
+// Tgt  1 + CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCC 60
+
+// Qry 61 + UAAGGUUGUUGAGUUCUGUGUUUGGAGGC 89
+//          |||||||||||||||||| ||||   |||
+// Tgt 61 + UAAGGUUGUUGAGUUCUGCGUUUCUGGGC 89
+
+// 89 cols, 76 ids (85.4%), 0 gaps (0.0%)
