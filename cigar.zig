@@ -71,18 +71,40 @@ pub const Cigar = struct {
         }
     }
 
-    pub fn popOp(self: *Self) ?CigarOp {
-        if (self.entries.items.len == 0)
-            return null;
+    pub const Iterator = struct {
+        cigar: *const Self,
+        index: usize = 0,
+        count: usize = 0,
 
-        var first_entry = &self.entries.items[0];
-        first_entry.count -= 1;
+        pub fn next(it: *Iterator) ?CigarOp {
+            if (it.isEmpty())
+                return null;
 
-        if (first_entry.count == 0) {
-            return self.entries.orderedRemove(0).op;
-        } else {
-            return first_entry.op;
+            var entry = it.cigar.entries.items[it.index];
+
+            it.count += 1;
+            if (it.count >= entry.count) {
+                // next element
+                it.count = 0;
+                it.index += 1;
+            }
+
+            return entry.op;
         }
+
+        pub fn isEmpty(it: *Iterator) bool {
+            if (it.cigar.entries.items.len == 0)
+                return true;
+
+            if (it.index >= it.cigar.entries.items.len)
+                return true;
+
+            return false;
+        }
+    };
+
+    pub fn iterator(self: *const Self) Iterator {
+        return Iterator{ .cigar = self };
     }
 
     pub fn reverse(self: *Self) void {
@@ -164,12 +186,14 @@ test "pop op" {
     try cigar.addWithCount(.insertion, 2);
     try cigar.add(.match);
 
-    try std.testing.expectEqual(CigarOp.match, cigar.popOp().?);
-    try std.testing.expectEqual(CigarOp.mismatch, cigar.popOp().?);
-    try std.testing.expectEqual(CigarOp.insertion, cigar.popOp().?);
-    try std.testing.expectEqual(CigarOp.insertion, cigar.popOp().?);
-    try std.testing.expectEqual(CigarOp.match, cigar.popOp().?);
-    try std.testing.expect(cigar.popOp() == null);
+    var it = cigar.iterator();
+
+    try std.testing.expectEqual(CigarOp.match, it.next().?);
+    try std.testing.expectEqual(CigarOp.mismatch, it.next().?);
+    try std.testing.expectEqual(CigarOp.insertion, it.next().?);
+    try std.testing.expectEqual(CigarOp.insertion, it.next().?);
+    try std.testing.expectEqual(CigarOp.match, it.next().?);
+    try std.testing.expect(it.next() == null);
 }
 
 test "append other cigar" {

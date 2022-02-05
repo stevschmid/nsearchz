@@ -37,6 +37,8 @@ pub fn AlnoutWriter(comptime A: type) type {
         const MaxColumnsPerAlignmentLine = 60;
 
         pub fn write(writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
+            var buffered_writer = std.io.bufferedWriter(writer);
+
             try std.fmt.format(writer, "Query >{s}\n", .{query.identifier});
             try std.fmt.format(writer, " %Id   TLen  Target\n", .{});
 
@@ -82,14 +84,11 @@ pub fn AlnoutWriter(comptime A: type) type {
 
                 const max_length = std.math.max(query.length(), hit.target.length());
 
-                var top_cigar = try cigar.clone();
-                defer top_cigar.deinit();
-                var middle_cigar = try cigar.clone();
-                defer middle_cigar.deinit();
-                var bottom_cigar = try cigar.clone();
-                defer bottom_cigar.deinit();
+                var top_iter = cigar.iterator();
+                var middle_iter = cigar.iterator();
+                var bottom_iter = cigar.iterator();
 
-                while (!top_cigar.isEmpty()) {
+                while (!top_iter.isEmpty()) {
                     // Qry  1 + GGTGAGACGTTACGCAATAAATTGA 25
                     try std.fmt.format(writer, "Qry ", .{});
                     try printLength(writer, max_length, query_idx + 1);
@@ -97,14 +96,14 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try std.fmt.format(writer, " + ", .{});
 
                     var count: usize = 0;
-                    while (top_cigar.popOp()) |op| {
+                    while (top_iter.next()) |op| {
                         var ch = query.data[query_idx];
                         switch (op) {
                             .match, .mismatch, .insertion => query_idx += 1,
                             .deletion => ch = '-',
                         }
 
-                        try std.fmt.format(writer, "{c}", .{ch});
+                        try writer.writeByte(ch);
 
                         count += 1;
                         if (count % MaxColumnsPerAlignmentLine == 0)
@@ -121,12 +120,14 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try std.fmt.format(writer, "   ", .{});
 
                     count = 0;
-                    while (middle_cigar.popOp()) |op| {
+                    while (middle_iter.next()) |op| {
                         const ch: u8 = switch (op) {
                             .match => '|',
                             else => ' ',
                         };
-                        try std.fmt.format(writer, "{c}", .{ch});
+                        _ = ch;
+
+                        try writer.writeByte(ch);
 
                         count += 1;
                         if (count % MaxColumnsPerAlignmentLine == 0)
@@ -144,14 +145,14 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try std.fmt.format(writer, " + ", .{});
 
                     count = 0;
-                    while (bottom_cigar.popOp()) |op| {
+                    while (bottom_iter.next()) |op| {
                         var ch = hit.target.data[target_idx];
                         switch (op) {
                             .match, .mismatch, .deletion => target_idx += 1,
                             .insertion => ch = '-',
                         }
 
-                        try std.fmt.format(writer, "{c}", .{ch});
+                        try writer.writeByte(ch);
 
                         count += 1;
                         if (count % MaxColumnsPerAlignmentLine == 0)
@@ -170,7 +171,8 @@ pub fn AlnoutWriter(comptime A: type) type {
                 var num_matches: usize = 0;
                 var num_gaps: usize = 0;
 
-                while (cigar.popOp()) |op| {
+                var iter = cigar.iterator();
+                while (iter.next()) |op| {
                     switch (op) {
                         .match => num_matches += 1,
                         .insertion, .deletion => num_gaps += 1,
@@ -186,6 +188,9 @@ pub fn AlnoutWriter(comptime A: type) type {
                 try std.fmt.format(writer, "{d} cols, {d} ids ({d:.1}%), {d} gaps ({d:.1}%)\n", .{ num_cols, num_matches, ids_percent, num_gaps, gaps_percent });
 
                 try std.fmt.format(writer, "\n", .{});
+
+                // flush content
+                try buffered_writer.flush();
             }
         }
 
