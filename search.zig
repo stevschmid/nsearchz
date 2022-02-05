@@ -33,14 +33,18 @@ pub fn SearchHit(comptime A: type) type {
         pub fn init(allocator: std.mem.Allocator, target: Sequence(A), cigar: Cigar) !Self {
             return Self{
                 .allocator = allocator,
-                .cigar = try cigar.clone(),
                 .target = try target.clone(),
+                .cigar = try cigar.clone(),
             };
         }
 
+        pub fn clone(self: Self) !Self {
+            return try Self.init(self.allocator, self.target, self.cigar);
+        }
+
         pub fn deinit(self: *Self) void {
-            self.cigar.deinit();
             self.target.deinit();
+            self.cigar.deinit();
         }
     };
 }
@@ -115,8 +119,8 @@ pub fn Search(comptime DatabaseType: type) type {
         pub fn search(self: *Self, query: Sequence(A), hits: *SearchHitList(A)) !void {
             const min_hsp_length = std.math.min(DefaultMinHspLength, query.data.len / 2);
             const max_hsp_join_distance = DefaultMaxHSPJoinDistance;
-            _ = min_hsp_length;
-            _ = max_hsp_join_distance;
+
+            hits.list.clearRetainingCapacity();
 
             // highscores
             var highscores = try Highscores.init(self.allocator, self.options.max_accepts + self.options.max_rejects);

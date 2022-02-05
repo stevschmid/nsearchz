@@ -33,9 +33,9 @@ const Cigar = @import("../cigar.zig").Cigar;
 // 27 cols, 22 ids (81.5%), 2 gaps (7.4%)
 
 pub fn AlnoutWriter(comptime A: type) type {
-    const MaxColumnsPerAlignmentLine = 60;
-
     return struct {
+        const MaxColumnsPerAlignmentLine = 60;
+
         pub fn write(writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
             try std.fmt.format(writer, "Query >{s}\n", .{query.identifier});
             try std.fmt.format(writer, " %Id   TLen  Target\n", .{});

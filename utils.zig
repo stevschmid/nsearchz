@@ -24,7 +24,7 @@ pub fn ArrayListDeinitWrapper(comptime T: type) type {
             var cloned = Self.init(self.allocator);
 
             for (self.list.items) |item|
-                cloned.list.append(try item.clone());
+                try cloned.list.append(try item.clone());
 
             return cloned;
         }

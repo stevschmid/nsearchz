@@ -17,11 +17,36 @@ const Sequence = @import("sequence.zig").Sequence;
 const SequenceList = @import("sequence.zig").SequenceList;
 
 const FastaReader = @import("io/io.zig").FastaReader;
+const AlnoutWriter = @import("io/io.zig").AlnoutWriter;
+
 const Database = @import("database.zig").Database;
 const Highscores = @import("highscores.zig").Highscores;
 
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
+
+pub fn Result(comptime A: type) type {
+    return struct {
+        const Self = @This();
+
+        allocator: std.mem.Allocator,
+        query: Sequence(A),
+        hits: SearchHitList(A),
+
+        pub fn init(allocator: std.mem.Allocator, query: Sequence(A), hits: SearchHitList(A)) !Self {
+            return Self{
+                .allocator = allocator,
+                .query = try query.clone(),
+                .hits = try hits.clone(),
+            };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.query.deinit();
+            self.hits.deinit();
+        }
+    };
+}
 
 // pub fn Worker(comptime DatabaseType: type) type {
 //     return struct {
@@ -87,6 +112,12 @@ pub fn main() !void {
     });
     defer allocator.free(filePathToQuery);
 
+    const filePathToOutput = (try arg_it.next(allocator) orelse {
+        print("Expected third argument to be path to output file\n", .{});
+        return error.InvalidArgs;
+    });
+    defer allocator.free(filePathToOutput);
+
     // Read DB
     var sequences = SequenceList(alphabet.DNA).init(allocator);
     defer sequences.deinit();
@@ -128,15 +159,27 @@ pub fn main() !void {
     var search = try Search(databaseType).init(allocator, &db, .{});
     defer search.deinit();
 
+    var hits = SearchHitList(alphabet.DNA).init(allocator);
+    defer hits.deinit();
+
+    var results = utils.ArrayListDeinitWrapper(Result(alphabet.DNA)).init(allocator);
+    defer results.deinit();
+
     for (queries.list.items) |query| {
-        var hits = SearchHitList.init(allocator);
-        defer hits.deinit();
         try search.search(query, &hits);
 
         for (hits.list.items) |hit| {
             std.debug.print("heh {s}\n", .{hit.cigar.str()});
+
+            try results.list.append(try Result(alphabet.DNA).init(allocator, query, hits));
         }
     }
 
-    // _ = search;
+    const dir: std.fs.Dir = std.fs.cwd();
+    const file: std.fs.File = try dir.createFile(filePathToOutput, .{});
+    defer file.close();
+
+    for (results.list.items) |result| {
+        try AlnoutWriter(alphabet.DNA).write(file.writer(), result.query, result.hits);
+    }
 }

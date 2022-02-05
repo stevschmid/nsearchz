@@ -6,6 +6,14 @@ const utils = @import("../utils.zig");
 
 pub fn FastaReader(comptime A: type) type {
     return struct {
+        pub fn readFile(path: []const u8, sequences: *SequenceList(A)) !void {
+            const dir: std.fs.Dir = std.fs.cwd();
+            const file: std.fs.File = try dir.openFile(path, .{ .read = true });
+            defer file.close();
+
+            return try parse(file.reader(), sequences);
+        }
+
         pub fn parse(reader: anytype, sequences: *SequenceList(A)) !void {
             var buffered_reader = std.io.bufferedReader(reader);
             var stream = buffered_reader.reader();
@@ -54,14 +62,6 @@ pub fn FastaReader(comptime A: type) type {
             if (data.items.len > 0) {
                 try sequences.list.append(try Sequence(A).init(sequences.allocator, identifier.items, data.items));
             }
-        }
-
-        pub fn readFile(path: []const u8, sequences: *SequenceList(A)) !void {
-            const dir: std.fs.Dir = std.fs.cwd();
-            const file: std.fs.File = try dir.openFile(path, .{ .read = true });
-            defer file.close();
-
-            return try parse(file.reader(), sequences);
         }
     };
 }
