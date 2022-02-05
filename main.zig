@@ -132,10 +132,10 @@ pub fn main() !void {
     const workerType = Worker(databaseType);
     const writerType = Writer(alphabet.DNA);
 
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    // defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
-    const allocator = std.heap.c_allocator;
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    // const allocator = std.heap.c_allocator;
 
     var arg_it = std.process.args();
 
@@ -234,30 +234,4 @@ pub fn main() !void {
     writer_thread.join();
 
     print("Searching took {}ms\n", .{std.time.milliTimestamp() - bench_start});
-
-    //     var search = try Search(databaseType).init(allocator, &db, .{});
-    //     defer search.deinit();
-
-    //     var results = utils.ArrayListDeinitWrapper(Result(alphabet.DNA)).init(allocator);
-    //     defer results.deinit();
-
-    //     bench_start = std.time.milliTimestamp();
-    //     for (queries.list.items) |query| {
-    //         var hits = SearchHitList(alphabet.DNA).init(allocator);
-    //         defer hits.deinit();
-
-    //         try search.search(query, &hits);
-
-    //         try results.list.append(try Result(alphabet.DNA).init(allocator, query, hits));
-    //     }
-
-    //     const dir: std.fs.Dir = std.fs.cwd();
-    //     const file: std.fs.File = try dir.createFile(filePathToOutput, .{});
-    //     defer file.close();
-
-    //     bench_start = std.time.milliTimestamp();
-    //     for (results.list.items) |result| {
-    //         try AlnoutWriter(alphabet.DNA).write(file.writer(), result.query, result.hits);
-    //     }
-    //     print("Writing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 }
