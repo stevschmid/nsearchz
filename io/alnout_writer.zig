@@ -36,8 +36,10 @@ pub fn AlnoutWriter(comptime A: type) type {
     return struct {
         const MaxColumnsPerAlignmentLine = 60;
 
-        pub fn write(writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
-            var buffered_writer = std.io.bufferedWriter(writer);
+        pub fn write(unbuffered_writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
+            // buffer, IO directly is slow
+            var buffered_writer = std.io.bufferedWriter(unbuffered_writer);
+            var writer = buffered_writer.writer();
 
             try std.fmt.format(writer, "Query >{s}\n", .{query.identifier});
             try std.fmt.format(writer, " %Id   TLen  Target\n", .{});
