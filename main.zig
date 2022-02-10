@@ -11,6 +11,7 @@ const Cigar = @import("cigar.zig").Cigar;
 const CigarOp = @import("cigar.zig").CigarOp;
 
 const Search = @import("search.zig").Search;
+const SearchOptions = @import("search.zig").SearchOptions;
 const SearchHitList = @import("search.zig").SearchHitList;
 
 const Sequence = @import("sequence.zig").Sequence;
@@ -24,6 +25,8 @@ const Highscores = @import("highscores.zig").Highscores;
 
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
+
+const getArgs = @import("args.zig").getArgs;
 
 pub fn Result(comptime A: type) type {
     return struct {
@@ -59,13 +62,14 @@ pub fn Worker(comptime DatabaseType: type) type {
             queue: *std.atomic.Queue(WorkItem),
             results: *std.atomic.Queue(Result(DatabaseType.Alphabet)),
             database: *DatabaseType,
+            search_options: SearchOptions,
         };
 
         fn entryPoint(context: *WorkerContext) !void {
             const allocator = context.allocator;
             const database = context.database;
 
-            var search = try Search(DatabaseType).init(allocator, database, .{});
+            var search = try Search(DatabaseType).init(allocator, database, context.search_options);
             defer search.deinit();
 
             while (context.queue.get()) |node| {
@@ -137,28 +141,11 @@ pub fn main() !void {
     const allocator = gpa.allocator();
     // const allocator = std.heap.c_allocator;
 
-    var arg_it = std.process.args();
+    const args = getArgs(allocator) catch std.os.exit(1);
 
-    // skip my own exe name
-    _ = arg_it.skip();
-
-    const filePathToDatabase = (try arg_it.next(allocator) orelse {
-        print("Expected first argument to be path to database file\n", .{});
-        return error.InvalidArgs;
-    });
-    defer allocator.free(filePathToDatabase);
-
-    const filePathToQuery = (try arg_it.next(allocator) orelse {
-        print("Expected second argument to be path to query file\n", .{});
-        return error.InvalidArgs;
-    });
-    defer allocator.free(filePathToQuery);
-
-    const filePathToOutput = (try arg_it.next(allocator) orelse {
-        print("Expected third argument to be path to output file\n", .{});
-        return error.InvalidArgs;
-    });
-    defer allocator.free(filePathToOutput);
+    const filePathToDatabase = std.mem.sliceTo(&args.db, 0);
+    const filePathToQuery = std.mem.sliceTo(&args.query, 0);
+    const filePathToOutput = std.mem.sliceTo(&args.out, 0);
 
     // Read DB
     var bench_start = std.time.milliTimestamp();
@@ -180,19 +167,16 @@ pub fn main() !void {
 
     print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
-    // searching
-
     // Fill queue
     var queue = std.atomic.Queue(workerType.WorkItem).init();
     var results = std.atomic.Queue(Result(alphabet.DNA)).init();
     var search_finished = std.atomic.Atomic(bool).init(false);
 
-    var context: workerType.WorkerContext = .{
-        .allocator = allocator,
-        .queue = &queue,
-        .database = &db,
-        .results = &results,
-    };
+    var context: workerType.WorkerContext = .{ .allocator = allocator, .queue = &queue, .database = &db, .results = &results, .search_options = .{
+        .max_accepts = args.max_hits,
+        .max_rejects = args.max_rejects,
+        .min_identity = args.min_identity,
+    } };
 
     var writer_context: writerType.WriterContext = .{
         .allocator = allocator,
