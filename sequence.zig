@@ -16,8 +16,8 @@ pub fn Sequence(comptime A: type) type {
         pub fn init(allocator: std.mem.Allocator, identifier: []const u8, data: []const u8) !Self {
             return Self{
                 .allocator = allocator,
-                .identifier = try utils.dup(u8, allocator, identifier),
-                .data = try utils.dup(u8, allocator, data),
+                .identifier = try allocator.dupe(u8, identifier),
+                .data = try allocator.dupe(u8, data),
             };
         }
 
