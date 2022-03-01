@@ -146,18 +146,39 @@ pub fn main() !void {
     const filePathToDatabase = std.mem.sliceTo(&args.db, 0);
     const filePathToQuery = std.mem.sliceTo(&args.query, 0);
     const filePathToOutput = std.mem.sliceTo(&args.out, 0);
+    const dir: std.fs.Dir = std.fs.cwd();
 
     // Read DB
     var bench_start = std.time.milliTimestamp();
 
     var sequences = SequenceList(alphabet.DNA).init(allocator);
     defer sequences.deinit();
-    try FastaReader(alphabet.DNA).readFile(filePathToDatabase, &sequences);
+
+    const db_file: std.fs.File = try dir.openFile(filePathToDatabase, .{ .read = true });
+    defer db_file.close();
+    var db_source = std.io.StreamSource{ .file = db_file };
+
+    var db_reader = FastaReader(alphabet.DNA).init(allocator, &db_source);
+    defer db_reader.deinit();
+
+    while (try db_reader.next()) |sequence| {
+        try sequences.list.append(sequence);
+    }
 
     // Read Query
     var queries = SequenceList(alphabet.DNA).init(allocator);
     defer queries.deinit();
-    try FastaReader(alphabet.DNA).readFile(filePathToQuery, &queries);
+
+    const query_file: std.fs.File = try dir.openFile(filePathToQuery, .{ .read = true });
+    defer query_file.close();
+    var query_source = std.io.StreamSource{ .file = query_file };
+
+    var query_reader = FastaReader(alphabet.DNA).init(allocator, &query_source);
+    defer query_reader.deinit();
+
+    while (try query_reader.next()) |sequence| {
+        try queries.list.append(sequence);
+    }
 
     print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 

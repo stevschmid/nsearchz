@@ -1,46 +1,55 @@
 const std = @import("std");
 
 const Sequence = @import("../sequence.zig").Sequence;
-const SequenceList = @import("../sequence.zig").SequenceList;
 const utils = @import("../utils.zig");
 
 pub fn FastaReader(comptime A: type) type {
     return struct {
-        pub fn readFile(path: []const u8, sequences: *SequenceList(A)) !void {
-            const dir: std.fs.Dir = std.fs.cwd();
-            const file: std.fs.File = try dir.openFile(path, .{ .read = true });
-            defer file.close();
+        const Self = @This();
 
-            return try parse(file.reader(), sequences);
+        allocator: std.mem.Allocator,
+
+        stream: std.io.PeekStream(.{ .Static = 4096 }, std.io.BufferedReader(4096, std.io.StreamSource.Reader)),
+
+        identifier: std.ArrayList(u8),
+        data: std.ArrayList(u8),
+
+        pub fn init(allocator: std.mem.Allocator, source: *std.io.StreamSource) Self {
+            return Self{
+                .allocator = allocator,
+
+                .stream = std.io.peekStream(4096, std.io.bufferedReader(source.reader())),
+
+                .identifier = std.ArrayList(u8).init(allocator),
+                .data = std.ArrayList(u8).init(allocator),
+            };
         }
 
-        pub fn parse(reader: anytype, sequences: *SequenceList(A)) !void {
-            var buffered_reader = std.io.bufferedReader(reader);
-            var stream = buffered_reader.reader();
+        pub fn deinit(self: *Self) void {
+            self.identifier.deinit();
+            self.data.deinit();
+        }
 
-            var identifier = std.ArrayList(u8).init(sequences.allocator);
-            defer identifier.deinit();
-
-            var data = std.ArrayList(u8).init(sequences.allocator);
-            defer data.deinit();
-
+        pub fn next(self: *Self) !?Sequence(A) {
             var buffer: [4096]u8 = undefined;
-            while (try stream.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
-                if (line.len == 0) continue;
+
+            var reader = self.stream.reader();
+
+            while (try reader.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
+                if (line.len == 0)
+                    continue;
 
                 switch (line[0]) {
                     '>' => {
-                        // add old sequence
-                        if (data.items.len > 0) {
-                            try sequences.list.append(try Sequence(A).init(sequences.allocator, identifier.items, data.items));
+                        if (self.identifier.items.len > 0) {
+                            // seek back, this line is start of next sequence
+                            try self.stream.putBackByte('\n');
+                            try self.stream.putBack(line);
+
+                            return self.publish();
+                        } else {
+                            try self.identifier.appendSlice(line[1..]);
                         }
-
-                        // reset
-                        identifier.clearRetainingCapacity();
-                        data.clearRetainingCapacity();
-
-                        // start new sequence
-                        try identifier.appendSlice(line[1..]);
                     },
                     ';' => {
                         // ignore comment
@@ -53,15 +62,29 @@ pub fn FastaReader(comptime A: type) type {
                             }
                         }
 
-                        try data.appendSlice(line);
+                        try self.data.appendSlice(line);
                     },
                 }
             }
 
-            // add remaining sequence
-            if (data.items.len > 0) {
-                try sequences.list.append(try Sequence(A).init(sequences.allocator, identifier.items, data.items));
-            }
+            return self.publish();
+        }
+
+        fn publish(self: *Self) !?Sequence(A) {
+            if (self.identifier.items.len == 0)
+                return null;
+
+            if (self.data.items.len == 0)
+                return null;
+
+            // build this sequence
+            const sequence = try Sequence(A).init(self.allocator, self.identifier.items, self.data.items);
+
+            // reset
+            self.identifier.clearRetainingCapacity();
+            self.data.clearRetainingCapacity();
+
+            return sequence;
         }
     };
 }
@@ -85,20 +108,28 @@ test "reads fasta" {
         \\actgc
     ;
 
-    var sequences = SequenceList(DNA).init(allocator);
-    defer sequences.deinit();
-
     var source = std.io.StreamSource{ .const_buffer = std.io.fixedBufferStream(fasta) };
-    try FastaReader(DNA).parse(source.reader(), &sequences);
 
-    try std.testing.expectEqual(@as(usize, 3), sequences.list.items.len);
+    var reader = FastaReader(DNA).init(allocator, &source);
+    defer reader.deinit();
 
-    try std.testing.expectEqualStrings("Seq1", sequences.list.items[0].identifier);
-    try std.testing.expectEqualStrings("TGGCGAAATTGGG", sequences.list.items[0].data);
+    var seq: Sequence(DNA) = undefined;
 
-    try std.testing.expectEqualStrings("Seq2", sequences.list.items[1].identifier);
-    try std.testing.expectEqualStrings("TTTTTCAGTC", sequences.list.items[1].data);
+    seq = (try reader.next()).?;
+    try std.testing.expectEqualStrings(seq.identifier, "Seq1");
+    try std.testing.expectEqualStrings(seq.data, "TGGCGAAATTGGG");
+    seq.deinit();
 
-    try std.testing.expectEqualStrings("Seq3", sequences.list.items[2].identifier);
-    try std.testing.expectEqualStrings("ACTGC", sequences.list.items[2].data);
+    seq = (try reader.next()).?;
+    try std.testing.expectEqualStrings(seq.identifier, "Seq2");
+    try std.testing.expectEqualStrings(seq.data, "TTTTTCAGTC");
+    seq.deinit();
+
+    seq = (try reader.next()).?;
+    try std.testing.expectEqualStrings(seq.identifier, "Seq3");
+    try std.testing.expectEqualStrings(seq.data, "ACTGC");
+    seq.deinit();
+
+    try std.testing.expect((try reader.next()) == null);
+    try std.testing.expect((try reader.next()) == null);
 }
