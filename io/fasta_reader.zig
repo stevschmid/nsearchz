@@ -13,12 +13,20 @@ pub fn FastaReader(comptime A: type) type {
 
         reader: std.io.BufferedReader(4096, std.io.StreamSource.Reader),
 
+        bytes_read: u64,
+        bytes_total: u64,
+
         identifier: std.ArrayList(u8),
         data: std.ArrayList(u8),
 
         pub fn init(allocator: std.mem.Allocator, source: *std.io.StreamSource) Self {
+            const stream = source.seekableStream();
+
             return Self{
                 .allocator = allocator,
+
+                .bytes_read = 0,
+                .bytes_total = stream.getEndPos() catch 0,
 
                 .source = source,
                 .reader = std.io.bufferedReader(source.reader()),
@@ -39,6 +47,8 @@ pub fn FastaReader(comptime A: type) type {
             while (try self.reader.reader().readUntilDelimiterOrEof(&buffer, '\n')) |line| {
                 if (line.len == 0)
                     continue;
+
+                self.bytes_read += line.len + 1;
 
                 switch (line[0]) {
                     '>' => {
