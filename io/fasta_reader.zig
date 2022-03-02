@@ -9,7 +9,9 @@ pub fn FastaReader(comptime A: type) type {
 
         allocator: std.mem.Allocator,
 
-        stream: std.io.PeekStream(.{ .Static = 4096 }, std.io.BufferedReader(4096, std.io.StreamSource.Reader)),
+        source: *std.io.StreamSource,
+
+        reader: std.io.BufferedReader(4096, std.io.StreamSource.Reader),
 
         identifier: std.ArrayList(u8),
         data: std.ArrayList(u8),
@@ -18,7 +20,8 @@ pub fn FastaReader(comptime A: type) type {
             return Self{
                 .allocator = allocator,
 
-                .stream = std.io.peekStream(4096, std.io.bufferedReader(source.reader())),
+                .source = source,
+                .reader = std.io.bufferedReader(source.reader()),
 
                 .identifier = std.ArrayList(u8).init(allocator),
                 .data = std.ArrayList(u8).init(allocator),
@@ -33,20 +36,16 @@ pub fn FastaReader(comptime A: type) type {
         pub fn next(self: *Self) !?Sequence(A) {
             var buffer: [4096]u8 = undefined;
 
-            var reader = self.stream.reader();
-
-            while (try reader.readUntilDelimiterOrEof(&buffer, '\n')) |line| {
+            while (try self.reader.reader().readUntilDelimiterOrEof(&buffer, '\n')) |line| {
                 if (line.len == 0)
                     continue;
 
                 switch (line[0]) {
                     '>' => {
                         if (self.identifier.items.len > 0) {
-                            // seek back, this line is start of next sequence
-                            try self.stream.putBackByte('\n');
-                            try self.stream.putBack(line);
-
-                            return self.publish();
+                            const seq = try self.publish();
+                            try self.identifier.appendSlice(line[1..]);
+                            return seq;
                         } else {
                             try self.identifier.appendSlice(line[1..]);
                         }
