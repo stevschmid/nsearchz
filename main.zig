@@ -141,7 +141,17 @@ pub fn SequenceReader(comptime A: type) type {
 
         path: []const u8,
 
-        pub fn handle(self: *Self, worker: *Worker) !void {
+        pub fn init(self: *Self, worker: *Worker) !void {
+            _ = self;
+            _ = worker;
+        }
+
+        pub fn deinit(self: *Self, worker: *Worker) !void {
+            _ = self;
+            _ = worker;
+        }
+
+        pub fn loop(self: *Self, worker: *Worker) !void {
             const dir: std.fs.Dir = std.fs.cwd();
             const file: std.fs.File = try dir.openFile(self.path, .{ .read = true });
             defer file.close();
@@ -168,7 +178,17 @@ pub fn Indexer(comptime DatabaseType: type) type {
 
         database: *DatabaseType,
 
-        pub fn handle(self: *Self, worker: *Worker) !void {
+        pub fn init(self: *Self, worker: *Worker) !void {
+            _ = self;
+            _ = worker;
+        }
+
+        pub fn deinit(self: *Self, worker: *Worker) !void {
+            _ = self;
+            _ = worker;
+        }
+
+        pub fn loop(self: *Self, worker: *Worker) !void {
             var sequences = SequenceList(DatabaseType.Alphabet).init(worker.allocator);
             defer sequences.deinit();
 
@@ -178,8 +198,6 @@ pub fn Indexer(comptime DatabaseType: type) type {
             }
 
             self.database.* = try DatabaseType.init(worker.allocator, sequences.list.toOwnedSlice());
-
-            std.debug.print("DB ENDE \n", .{});
         }
     };
 }
@@ -193,10 +211,21 @@ pub fn Searcher(comptime DatabaseType: type) type {
         database: *DatabaseType,
         search_options: SearchOptions,
 
-        pub fn handle(self: *Self, worker: *Worker) !void {
-            var search = try Search(DatabaseType).init(worker.allocator, self.database, self.search_options);
-            defer search.deinit();
+        search: Search(DatabaseType) = undefined,
 
+        pub fn init(self: *Self, worker: *Worker) !void {
+            _ = worker;
+
+            self.search = try Search(DatabaseType).init(worker.allocator, self.database, self.search_options);
+        }
+
+        pub fn deinit(self: *Self, worker: *Worker) !void {
+            _ = worker;
+
+            self.search.deinit();
+        }
+
+        pub fn loop(self: *Self, worker: *Worker) !void {
             while (worker.pop()) |node| {
                 var hits = SearchHitList(DatabaseType.Alphabet).init(worker.allocator);
                 defer hits.deinit();
@@ -205,7 +234,7 @@ pub fn Searcher(comptime DatabaseType: type) type {
                 defer query.deinit();
 
                 // now search!
-                try search.search(query, &hits);
+                try self.search.search(query, &hits);
 
                 if (hits.list.items.len > 0) {
                     const out = try worker.allocator.create(Worker.OutputNode);
@@ -226,17 +255,26 @@ pub fn Writer(comptime A: type) type {
         pub const Worker = CreateWorker(Result(A), void, 20);
 
         path: []const u8,
+        file: std.fs.File = undefined,
 
-        pub fn handle(self: *Self, worker: *Worker) !void {
+        pub fn init(self: *Self, worker: *Worker) !void {
+            _ = worker;
+
             const dir: std.fs.Dir = std.fs.cwd();
-            const file: std.fs.File = try dir.createFile(self.path, .{});
-            defer file.close();
+            self.file = try dir.createFile(self.path, .{});
+        }
 
+        pub fn deinit(self: *Self, worker: *Worker) !void {
+            _ = worker;
+            self.file.close();
+        }
+
+        pub fn loop(self: *Self, worker: *Worker) !void {
             while (worker.pop()) |node| {
                 var result = node.data;
                 defer result.deinit();
 
-                try AlnoutWriter(A).write(file.writer(), result.query, result.hits);
+                try AlnoutWriter(A).write(self.file.writer(), result.query, result.hits);
 
                 worker.allocator.destroy(node);
             }

@@ -81,8 +81,10 @@ pub fn CreateWorker(comptime Input: type, comptime Output: type, comptime MaxBuf
             // Enter running mode
             self.state.set(.running);
 
+            try handler.init(self);
+
             while (true) {
-                try handler.handle(self);
+                try handler.loop(self);
 
                 // all consumer satisified?
                 const satisfied = for (self.deps.items) |dep| {
@@ -96,6 +98,8 @@ pub fn CreateWorker(comptime Input: type, comptime Output: type, comptime MaxBuf
                 if (satisfied) break;
                 std.time.sleep(10 * std.time.ns_per_ms);
             }
+
+            try handler.deinit(self);
 
             // flush before we are declare finished
             self.flush();
