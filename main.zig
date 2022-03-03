@@ -382,9 +382,18 @@ pub fn main() !void {
             .kind = .upstream,
         });
 
+        try searcher_worker.addDependency(.{
+            .state = &query_reader_worker.state,
+            .kind = .upstream,
+        });
+
         searchers[index] = .{
             .database = &database,
-            .search_options = .{},
+            .search_options = .{
+                .max_accepts = args.max_hits,
+                .max_rejects = args.max_rejects,
+                .min_identity = args.min_identity,
+            },
         };
 
         try searcher_worker.run(Searcher(DatabaseType), &searchers[index]);
