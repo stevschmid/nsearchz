@@ -28,6 +28,8 @@ const alphabet = bio.alphabet;
 
 const getArgs = @import("args.zig").getArgs;
 
+var progress = Progress(SearchStage){};
+
 pub fn Result(comptime A: type) type {
     return struct {
         const Self = @This();
@@ -53,6 +55,8 @@ pub fn Result(comptime A: type) type {
 
 pub fn Worker(comptime DatabaseType: type) type {
     return struct {
+        // const NumSearchedQueriesToReport = 1;
+
         pub const WorkItem = struct {
             query: Sequence(DatabaseType.Alphabet),
         };
@@ -63,6 +67,8 @@ pub fn Worker(comptime DatabaseType: type) type {
             results: *std.atomic.Queue(Result(DatabaseType.Alphabet)),
             database: *DatabaseType,
             search_options: SearchOptions,
+            search_count: *std.atomic.Atomic(usize),
+            hit_count: *std.atomic.Atomic(usize),
         };
 
         fn entryPoint(context: *WorkerContext) !void {
@@ -82,13 +88,15 @@ pub fn Worker(comptime DatabaseType: type) type {
 
                 if (hits.list.items.len > 0) {
                     const out = try context.allocator.create(std.atomic.Queue(Result(DatabaseType.Alphabet)).Node);
-                    out.* = .{
-                        .data = try Result(alphabet.DNA).init(allocator, query, hits),
-                    };
+                    out.data = try Result(alphabet.DNA).init(allocator, query, hits);
                     context.results.put(out);
+
+                    _ = context.hit_count.fetchAdd(hits.list.items.len, .Monotonic);
                 }
 
                 allocator.destroy(node);
+
+                _ = context.search_count.fetchAdd(1, .Monotonic);
             }
         }
     };
@@ -100,6 +108,7 @@ pub fn Writer(comptime A: type) type {
             allocator: std.mem.Allocator,
             results: *std.atomic.Queue(Result(A)),
             search_finished: *std.atomic.Atomic(bool),
+            written_count: *std.atomic.Atomic(usize),
             path: []const u8,
         };
 
@@ -126,15 +135,94 @@ pub fn Writer(comptime A: type) type {
                 try AlnoutWriter(alphabet.DNA).write(file.writer(), result.query, result.hits);
 
                 context.allocator.destroy(node.?);
+                _ = context.written_count.fetchAdd(1, .Monotonic);
             }
         }
     };
 }
 
+pub fn Progress(comptime Stages: type) type {
+    return struct {
+        const Unit = enum {
+            counts,
+            bytes,
+        };
+
+        const Stage = struct {
+            label: []const u8,
+            unit: Unit,
+            value: usize = 0,
+            max: usize = 0,
+        };
+
+        const Self = @This();
+
+        const Indexer = std.enums.EnumIndexer(Stages);
+        stages: [Indexer.count]Stage = undefined,
+        active_index: usize = 0,
+        out: std.fs.File = std.io.getStdOut(),
+
+        pub fn add(self: *Self, stage: Stages, label: []const u8, unit: Unit) void {
+            self.stages[Indexer.indexOf(stage)] = .{
+                .label = label,
+                .unit = unit,
+            };
+        }
+
+        pub fn activate(self: *Self, stage: Stages) void {
+            const new_index = Indexer.indexOf(stage);
+            if (new_index != self.active_index)
+                self.write("\n", .{});
+
+            self.active_index = new_index;
+        }
+
+        pub fn set(self: *Self, stage: Stages, value: usize, max: usize) void {
+            const index = Indexer.indexOf(stage);
+            const st = &self.stages[index];
+            st.value = value;
+            st.max = max;
+
+            if (self.active_index == index) {
+                self.print(st);
+            }
+        }
+
+        fn print(self: *Self, stage: *Stage) void {
+            // TODO: last update time check
+            self.write("{s}: {d}/{d}\r", .{ stage.label, stage.value, stage.max });
+        }
+
+        fn write(self: *Self, comptime fmt: anytype, args: anytype) void {
+            self.out.writer().print(fmt, args) catch std.process.exit(1);
+        }
+
+        fn finish(self: *Self) void {
+            self.write("\n", .{});
+        }
+    };
+}
+
+const SearchStage = enum {
+    read_database,
+    analyze_database,
+    index_database,
+    read_queries,
+    search_database,
+    write_hits,
+};
+
 pub fn main() !void {
     const databaseType = Database(alphabet.DNA, 8);
     const workerType = Worker(databaseType);
     const writerType = Writer(alphabet.DNA);
+
+    progress.add(.read_database, "Read database", .bytes);
+    progress.add(.analyze_database, "Analyze database", .counts);
+    progress.add(.index_database, "Index database", .counts);
+    progress.add(.read_queries, "Read queries", .bytes);
+    progress.add(.search_database, "Search database", .counts);
+    progress.add(.write_hits, "Write hits", .counts);
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
@@ -161,9 +249,31 @@ pub fn main() !void {
     var db_reader = FastaReader(alphabet.DNA).init(allocator, &db_source);
     defer db_reader.deinit();
 
+    progress.activate(.read_database);
     while (try db_reader.next()) |sequence| {
         try sequences.list.append(sequence);
+        progress.set(.read_database, db_reader.bytes_read, db_reader.bytes_total);
     }
+
+    // Index
+    const callback = struct {
+        pub fn callback(typ: databaseType.ProgressType, a: usize, b: usize) void {
+            switch (typ) {
+                .analyze => {
+                    progress.activate(.analyze_database);
+                    progress.set(.analyze_database, a, b);
+                },
+                .index => {
+                    progress.activate(.index_database);
+                    progress.set(.index_database, a, b);
+                },
+            }
+        }
+    }.callback;
+
+    bench_start = std.time.milliTimestamp();
+    var db = try databaseType.init(allocator, sequences.list.toOwnedSlice(), callback);
+    defer db.deinit();
 
     // Read Query
     var queries = SequenceList(alphabet.DNA).init(allocator);
@@ -176,42 +286,47 @@ pub fn main() !void {
     var query_reader = FastaReader(alphabet.DNA).init(allocator, &query_source);
     defer query_reader.deinit();
 
+    progress.activate(.read_queries);
     while (try query_reader.next()) |sequence| {
         try queries.list.append(sequence);
+        progress.set(.read_queries, query_reader.bytes_read, query_reader.bytes_total);
     }
-
-    print("Reading took {}ms\n", .{std.time.milliTimestamp() - bench_start});
-
-    bench_start = std.time.milliTimestamp();
-    var db = try databaseType.init(allocator, sequences.list.toOwnedSlice());
-    defer db.deinit();
-
-    print("Indexing took {}ms\n", .{std.time.milliTimestamp() - bench_start});
 
     // Fill queue
     var queue = std.atomic.Queue(workerType.WorkItem).init();
     var results = std.atomic.Queue(Result(alphabet.DNA)).init();
     var search_finished = std.atomic.Atomic(bool).init(false);
 
-    var context: workerType.WorkerContext = .{ .allocator = allocator, .queue = &queue, .database = &db, .results = &results, .search_options = .{
-        .max_accepts = args.max_hits,
-        .max_rejects = args.max_rejects,
-        .min_identity = args.min_identity,
-    } };
+    var search_count = std.atomic.Atomic(usize).init(0);
+    var hit_count = std.atomic.Atomic(usize).init(0);
+    var written_count = std.atomic.Atomic(usize).init(0);
+
+    var context: workerType.WorkerContext = .{
+        .allocator = allocator,
+        .queue = &queue,
+        .database = &db,
+        .results = &results,
+        .search_count = &search_count,
+        .hit_count = &hit_count,
+        .search_options = .{
+            .max_accepts = args.max_hits,
+            .max_rejects = args.max_rejects,
+            .min_identity = args.min_identity,
+        },
+    };
 
     var writer_context: writerType.WriterContext = .{
         .allocator = allocator,
         .results = &results,
         .search_finished = &search_finished,
         .path = filePathToOutput,
+        .written_count = &written_count,
     };
 
     for (queries.list.items) |query| {
         const node = try context.allocator.create(std.atomic.Queue(workerType.WorkItem).Node);
-        node.* = .{
-            .data = workerType.WorkItem{
-                .query = query,
-            },
+        node.data = workerType.WorkItem{
+            .query = query,
         };
         queue.put(node);
     }
@@ -229,14 +344,25 @@ pub fn main() !void {
         thread.* = try std.Thread.spawn(.{}, workerType.entryPoint, .{&context});
     }
 
-    // wait for search to finish
-    for (threads) |thread| {
-        thread.join();
+    // wait until queue is empty
+    progress.activate(.search_database);
+    while (!queue.isEmpty()) {
+        progress.set(.search_database, search_count.load(.SeqCst), queries.list.items.len);
+        std.time.sleep(50 * std.time.ns_per_ms);
     }
+    progress.set(.search_database, queries.list.items.len, queries.list.items.len); // 100%
 
     // wait for write to finish
     _ = search_finished.swap(true, .SeqCst);
+
+    // wait until results are written
+    progress.activate(.write_hits);
+    while (!results.isEmpty()) {
+        progress.set(.write_hits, written_count.load(.SeqCst), hit_count.load(.SeqCst));
+        std.time.sleep(50 * std.time.ns_per_ms);
+    }
+    progress.set(.write_hits, hit_count.load(.SeqCst), hit_count.load(.SeqCst));
     writer_thread.join();
 
-    print("Searching took {}ms\n", .{std.time.milliTimestamp() - bench_start});
+    progress.finish();
 }

@@ -20,8 +20,11 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
         kmer_offset_by_seq: []const usize,
         kmer_count_by_seq: []const usize,
 
+        pub const ProgressType = enum { analyze, index };
+        pub const ProgressCallback = fn (ProgressType, usize, usize) void;
+
         // Database takes ownerhip of sequences
-        pub fn init(allocator: std.mem.Allocator, sequences: []Sequence(A)) !Self {
+        pub fn init(allocator: std.mem.Allocator, sequences: []Sequence(A), progress_callback: ?ProgressCallback) !Self {
             var total_entries: usize = 0;
             var total_unique_entries: usize = 0;
 
@@ -50,6 +53,10 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
                     seq_by_kmer[kmer] = seq_idx;
                     count_by_kmer[kmer] += 1;
                     total_unique_entries += 1;
+                }
+
+                if (progress_callback != null and (seq_idx % 512 == 0 or seq_idx + 1 == sequences.len)) {
+                    progress_callback.?(.analyze, seq_idx + 1, sequences.len);
                 }
             }
 
@@ -97,6 +104,10 @@ pub fn Database(comptime A: type, comptime KmerLength: comptime_int) type {
                 }
 
                 kmer_count_by_seq[seq_idx] = kmer_count - kmer_offset_by_seq[seq_idx];
+
+                if (progress_callback != null and (seq_idx % 512 == 0 or seq_idx + 1 == sequences.len)) {
+                    progress_callback.?(.index, seq_idx + 1, sequences.len);
+                }
             }
 
             return Self{
