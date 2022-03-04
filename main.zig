@@ -30,6 +30,16 @@ const getArgs = @import("args.zig").getArgs;
 
 var progress = Progress(SearchStage){};
 
+const CountConverter = utils.Converter{
+    .units = &[_]u8{ ' ', 'k', 'M', 'G' },
+    .dividers = &[_]usize{ 1, 1_000, 1_000_000, 1_000_000_000 },
+};
+
+const ByteConverter = utils.Converter{
+    .units = &[_]u8{ 'B', 'k', 'M', 'G' },
+    .dividers = &[_]usize{ 1, 1024, 1024 * 1024, 1024 * 1024 * 1024 },
+};
+
 pub fn Result(comptime A: type) type {
     return struct {
         const Self = @This();
@@ -162,6 +172,21 @@ pub fn Progress(comptime Stages: type) type {
         active_index: usize = 0,
         out: std.fs.File = std.io.getStdOut(),
 
+        timer: std.time.Timer = undefined,
+
+        prev_stage: ?*Stage = undefined,
+        prev_print_timestamp: u64 = undefined,
+
+        pub fn start(self: *Self) !void {
+            self.timer = try std.time.Timer.start();
+            self.prev_stage = null;
+            self.prev_print_timestamp = 0;
+        }
+
+        fn finish(self: *Self) void {
+            self.write("\n", .{});
+        }
+
         pub fn add(self: *Self, stage: Stages, label: []const u8, unit: Unit) void {
             self.stages[Indexer.indexOf(stage)] = .{
                 .label = label,
@@ -189,16 +214,32 @@ pub fn Progress(comptime Stages: type) type {
         }
 
         fn print(self: *Self, stage: *Stage) void {
-            // TODO: last update time check
-            self.write("{s}: {d}/{d}\r", .{ stage.label, stage.value, stage.max });
+            const now = self.timer.read();
+
+            var refresh: bool = false;
+            refresh = refresh or (self.prev_print_timestamp + 50 * std.time.ns_per_ms < now);
+            refresh = refresh or (self.prev_stage == null or self.prev_stage.? != stage);
+            refresh = refresh or (stage.value >= stage.max);
+
+            if (!refresh) {
+                return;
+            }
+
+            self.prev_print_timestamp = now;
+            self.prev_stage = stage;
+
+            const percent = @intToFloat(f32, stage.value) / @intToFloat(f32, stage.max) * 100.0;
+
+            const result = switch (stage.unit) {
+                .counts => CountConverter.convert(stage.value),
+                .bytes => ByteConverter.convert(stage.value),
+            };
+
+            self.write("{s: <20}: {d:3.0}% ({d}{c})\r", .{ stage.label, percent, result.value, result.unit });
         }
 
         fn write(self: *Self, comptime fmt: anytype, args: anytype) void {
             self.out.writer().print(fmt, args) catch std.process.exit(1);
-        }
-
-        fn finish(self: *Self) void {
-            self.write("\n", .{});
         }
     };
 }
@@ -224,10 +265,12 @@ pub fn main() !void {
     progress.add(.search_database, "Search database", .counts);
     progress.add(.write_hits, "Write hits", .counts);
 
+    try progress.start();
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    // const allocator = std.heap.c_allocator;
+    // const allocator = gpa.allocator();
+    const allocator = std.heap.c_allocator;
 
     const args = getArgs(allocator) catch std.os.exit(1);
 

@@ -31,3 +31,25 @@ pub fn ArrayListDeinitWrapper(comptime T: type) type {
         }
     };
 }
+
+pub const Converter = struct {
+    units: []const u8,
+    dividers: []const usize,
+
+    pub const Result = struct {
+        value: f32,
+        unit: u8,
+    };
+
+    pub fn convert(self: Converter, value: usize) Result {
+        var idx: usize = 0;
+        while (idx + 1 < self.dividers.len and value > self.dividers[idx + 1] * 10) {
+            idx += 1;
+        }
+
+        return .{
+            .value = std.math.floor((@intToFloat(f32, value) / @intToFloat(f32, self.dividers[idx]))),
+            .unit = self.units[idx],
+        };
+    }
+};
