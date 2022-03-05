@@ -16,10 +16,17 @@ const ba = @import("banded_align.zig");
 
 const utils = @import("utils.zig");
 
+pub const Strand = enum {
+    plus,
+    minus,
+    both,
+};
+
 pub const SearchOptions = struct {
     max_accepts: u32 = 1,
     max_rejects: u32 = 16,
     min_identity: f32 = 0.75,
+    strand: Strand = .both,
 };
 
 pub fn SearchHit(comptime A: type) type {
@@ -29,17 +36,19 @@ pub fn SearchHit(comptime A: type) type {
         allocator: std.mem.Allocator,
         target: Sequence(A),
         cigar: Cigar,
+        reverse_match: bool = false,
 
-        pub fn init(allocator: std.mem.Allocator, target: Sequence(A), cigar: Cigar) !Self {
+        pub fn init(allocator: std.mem.Allocator, target: Sequence(A), cigar: Cigar, reverse_match: bool) !Self {
             return Self{
                 .allocator = allocator,
                 .target = try target.clone(),
                 .cigar = try cigar.clone(),
+                .reverse_match = reverse_match,
             };
         }
 
         pub fn clone(self: Self) !Self {
-            return try Self.init(self.allocator, self.target, self.cigar);
+            return try Self.init(self.allocator, self.target, self.cigar, self.reverse_match);
         }
 
         pub fn deinit(self: *Self) void {
@@ -117,10 +126,26 @@ pub fn Search(comptime DatabaseType: type) type {
         }
 
         pub fn search(self: *Self, query: Sequence(A), hits: *SearchHitList(A)) !void {
+            hits.list.clearRetainingCapacity();
+
+            if (self.options.strand == .plus or self.options.strand == .both) {
+                try self.do(query, hits, false);
+            }
+
+            if (self.options.strand == .minus or self.options.strand == .both) {
+                var reverse_complement = try query.clone();
+                defer reverse_complement.deinit();
+
+                reverse_complement.reverse();
+                reverse_complement.complement();
+
+                try self.do(reverse_complement, hits, true);
+            }
+        }
+
+        fn do(self: *Self, query: Sequence(A), hits: *SearchHitList(A), reverse_match: bool) !void {
             const min_hsp_length = std.math.min(DefaultMinHspLength, query.data.len / 2);
             const max_hsp_join_distance = DefaultMaxHSPJoinDistance;
-
-            hits.list.clearRetainingCapacity();
 
             // highscores
             var highscores = try Highscores.init(self.allocator, self.options.max_accepts + self.options.max_rejects);
@@ -335,7 +360,7 @@ pub fn Search(comptime DatabaseType: type) type {
 
                     var accept = (final_cigar.identity() >= self.options.min_identity);
                     if (accept) {
-                        try hits.list.append(try SearchHit(A).init(hits.allocator, seq, final_cigar));
+                        try hits.list.append(try SearchHit(A).init(hits.allocator, seq, final_cigar, reverse_match));
 
                         num_hits += 1;
                     } else {

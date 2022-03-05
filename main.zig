@@ -356,6 +356,7 @@ pub fn main() !void {
             .max_accepts = args.max_hits,
             .max_rejects = args.max_rejects,
             .min_identity = args.min_identity,
+            .strand = args.strand,
         },
     };
 

@@ -2,12 +2,14 @@ const std = @import("std");
 const print = std.debug.print;
 
 const ArgParser = @import("arg_parser.zig").ArgParser;
+const Strand = @import("search.zig").Strand;
 
 const Args = struct {
     query: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     db: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     out: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     min_identity: f32 = undefined,
+    strand: Strand = undefined,
 
     max_hits: u32 = 1,
     max_rejects: u32 = 16,
