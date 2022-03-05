@@ -36,6 +36,10 @@ pub const HSP = struct {
 
         return std.math.sqrt(dx * dx + dy * dy);
     }
+
+    pub fn is_downstream_of(self: Self, other: HSP) bool {
+        return self.start_one >= other.end_one and self.start_two >= other.end_two;
+    }
 };
 
 test "length" {

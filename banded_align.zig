@@ -101,8 +101,8 @@ pub fn BandedAlign(comptime A: type) type {
             // direction and length of sequences
             // A will be on the X axis (width of matrix)
             // B will be on the Y axis (height of matrix)
-            var len_one = seq_one.data.len;
-            var len_two = seq_two.data.len;
+            const len_one = seq_one.length();
+            const len_two = seq_two.length();
 
             const default_end_one = if (dir == .forward) len_one else 0;
             var end_one = end_one_ orelse default_end_one;
@@ -121,6 +121,14 @@ pub fn BandedAlign(comptime A: type) type {
 
             const width = if (end_one > start_one) end_one - start_one + 1 else start_one - end_one + 1;
             const height = if (end_two > start_two) end_two - start_two + 1 else start_two - end_two + 1;
+
+            if (dir == .forward) {
+                std.debug.assert(end_one >= start_one);
+                std.debug.assert(end_two >= start_two);
+            } else {
+                std.debug.assert(end_one <= start_one);
+                std.debug.assert(end_two <= start_two);
+            }
 
             // Make sure we have enough cells
             try self.scores.resize(@floatToInt(usize, @intToFloat(f32, width) * 1.5));

@@ -282,7 +282,10 @@ pub fn Search(comptime DatabaseType: type) type {
 
                     // check if hsp joinable
                     var is_joinable: bool = for (chain.items) |chain_part| {
-                        if (part.hsp.distance_to(chain_part.hsp) <= max_hsp_join_distance)
+                        const distance_satisified = part.hsp.distance_to(chain_part.hsp) <= max_hsp_join_distance;
+                        const downstream_satisfied = part.hsp.is_downstream_of(chain_part.hsp);
+
+                        if (distance_satisified and downstream_satisfied)
                             break true;
                     } else false;
 
@@ -312,7 +315,16 @@ pub fn Search(comptime DatabaseType: type) type {
                         const next_part = chain.items[index + 1];
 
                         try final_cigar.appendOther(part.cigar);
-                        _ = try self.banded_align.process(query, seq, .forward, part.hsp.end_one + 1, part.hsp.end_two + 1, next_part.hsp.start_one, next_part.hsp.start_two, &cigar);
+                        _ = try self.banded_align.process(
+                            query,
+                            seq,
+                            .forward,
+                            part.hsp.end_one + 1,
+                            part.hsp.end_two + 1,
+                            next_part.hsp.start_one,
+                            next_part.hsp.start_two,
+                            &cigar,
+                        );
                         try final_cigar.appendOther(cigar);
                     }
 
