@@ -228,7 +228,8 @@ pub fn Progress(comptime Stages: type) type {
             self.prev_print_timestamp = now;
             self.prev_stage = stage;
 
-            const percent = @intToFloat(f32, stage.value) / @intToFloat(f32, stage.max) * 100.0;
+            const ratio = if (stage.max == 0) 1.0 else (@intToFloat(f32, stage.value) / @intToFloat(f32, stage.max));
+            const percent = ratio * 100.0;
 
             const result = switch (stage.unit) {
                 .counts => CountConverter.convert(stage.value),
@@ -396,11 +397,12 @@ pub fn main() !void {
     progress.set(.search_database, queries.list.items.len, queries.list.items.len); // 100%
 
     // wait for searches to finish
-    _ = search_finished.swap(true, .SeqCst);
-
     for (threads) |thread| {
         thread.join();
     }
+
+    // tell writer all searches are done, write remaining results and then be happy
+    _ = search_finished.swap(true, .SeqCst);
 
     // wait until results are written
     progress.activate(.write_hits);
