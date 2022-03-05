@@ -37,7 +37,7 @@ pub const Converter = struct {
     dividers: []const usize,
 
     pub const Result = struct {
-        value: f32,
+        value: usize,
         unit: []const u8,
     };
 
@@ -48,7 +48,7 @@ pub const Converter = struct {
         }
 
         return .{
-            .value = std.math.floor((@intToFloat(f32, value) / @intToFloat(f32, self.dividers[idx]))),
+            .value = value / self.dividers[idx],
             .unit = self.units[idx],
         };
     }

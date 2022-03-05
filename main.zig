@@ -395,8 +395,12 @@ pub fn main() !void {
     }
     progress.set(.search_database, queries.list.items.len, queries.list.items.len); // 100%
 
-    // wait for write to finish
+    // wait for searches to finish
     _ = search_finished.swap(true, .SeqCst);
+
+    for (threads) |thread| {
+        thread.join();
+    }
 
     // wait until results are written
     progress.activate(.write_hits);
