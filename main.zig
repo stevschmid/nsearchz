@@ -31,12 +31,12 @@ const getArgs = @import("args.zig").getArgs;
 var progress = Progress(SearchStage){};
 
 const CountConverter = utils.Converter{
-    .units = &[_]u8{ ' ', 'k', 'M', 'G' },
+    .units = &[_][]const u8{ "", "k", "M", "G" },
     .dividers = &[_]usize{ 1, 1_000, 1_000_000, 1_000_000_000 },
 };
 
 const ByteConverter = utils.Converter{
-    .units = &[_]u8{ 'B', 'k', 'M', 'G' },
+    .units = &[_][]const u8{ "B", "kB", "MB", "GB" },
     .dividers = &[_]usize{ 1, 1024, 1024 * 1024, 1024 * 1024 * 1024 },
 };
 
@@ -235,7 +235,7 @@ pub fn Progress(comptime Stages: type) type {
                 .bytes => ByteConverter.convert(stage.value),
             };
 
-            self.write("{s: <20}: {d:3.0}% ({d}{c})\r", .{ stage.label, percent, result.value, result.unit });
+            self.write("{s: <20}: {d:3.0}% ({d}{s})" ++ (" " ** 40) ++ "\r", .{ stage.label, percent, result.value, result.unit });
         }
 
         fn write(self: *Self, comptime fmt: anytype, args: anytype) void {
@@ -269,8 +269,8 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
-    const allocator = std.heap.c_allocator;
+    const allocator = gpa.allocator();
+    // const allocator = std.heap.c_allocator;
 
     const args = getArgs(allocator) catch std.os.exit(1);
 

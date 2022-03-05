@@ -33,12 +33,12 @@ pub fn ArrayListDeinitWrapper(comptime T: type) type {
 }
 
 pub const Converter = struct {
-    units: []const u8,
+    units: []const []const u8,
     dividers: []const usize,
 
     pub const Result = struct {
         value: f32,
-        unit: u8,
+        unit: []const u8,
     };
 
     pub fn convert(self: Converter, value: usize) Result {
