@@ -9,7 +9,7 @@ const Args = struct {
     db: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     out: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     min_identity: f32 = undefined,
-    strand: Strand = undefined,
+    strand: Strand = .both,
 
     max_hits: u32 = 1,
     max_rejects: u32 = 16,
