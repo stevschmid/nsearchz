@@ -240,7 +240,7 @@ test "multiple hits per query" {
     try cigar.addWithCount(.match, 25);
     try cigar.addWithCount(.insertion, 2);
 
-    try hits.list.append(try SearchHit(DNA).init(allocator, target3, cigar));
+    try hits.list.append(try SearchHit(DNA).init(allocator, target3, cigar, false));
 
     // 2D1X8=2I1=1X4=1X9=1I
     var target1 = try Sequence(DNA).init(allocator, "DbId1", "ATCGTGAGACGATGCAAAAAATTGAGACGGATT");
@@ -258,7 +258,7 @@ test "multiple hits per query" {
     try cigar.addWithCount(.match, 9);
     try cigar.addWithCount(.insertion, 1);
 
-    try hits.list.append(try SearchHit(DNA).init(allocator, target1, cigar));
+    try hits.list.append(try SearchHit(DNA).init(allocator, target1, cigar, false));
 
     var buffer: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
@@ -306,7 +306,7 @@ test "dna" {
     defer target.deinit();
 
     try cigar.addFromString("1=1X1=2X7=1X2=1X11=1X17=2X1=1X29=1X4=3X3=");
-    try hits.list.append(try SearchHit(DNA).init(allocator, target, cigar));
+    try hits.list.append(try SearchHit(DNA).init(allocator, target, cigar, false));
 
     var buffer: [1000]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
