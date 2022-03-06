@@ -36,12 +36,12 @@ pub fn AlnoutWriter(comptime A: type) type {
     return struct {
         const MaxColumnsPerAlignmentLine = 60;
 
-        pub fn write(unbuffered_writer: anytype, base_query: Sequence(A), hits: SearchHitList(A)) !void {
+        pub fn write(unbuffered_writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
             // buffer, IO directly is slow
             var buffered_writer = std.io.bufferedWriter(unbuffered_writer);
             var writer = buffered_writer.writer();
 
-            try std.fmt.format(writer, "Query >{s}\n", .{base_query.identifier});
+            try std.fmt.format(writer, "Query >{s}\n", .{query.identifier});
             try std.fmt.format(writer, " %Id   TLen  Target\n", .{});
 
             for (hits.list.items) |hit| {
@@ -50,20 +50,9 @@ pub fn AlnoutWriter(comptime A: type) type {
 
             try std.fmt.format(writer, "\n", .{});
 
-            var reverse_query: ?Sequence(A) = null;
-            defer if (reverse_query != null) reverse_query.?.deinit();
-
             for (hits.list.items) |hit| {
                 if (hit.cigar.isEmpty())
                     continue;
-
-                if (hit.reverse_match) {
-                    reverse_query = try base_query.clone();
-                    reverse_query.?.reverse();
-                    reverse_query.?.complement();
-                }
-
-                const query = if (hit.reverse_match) reverse_query.? else base_query;
 
                 try std.fmt.format(writer, " Query {d}{s} >{s}\n", .{ query.length(), A.Unit, query.identifier });
                 try std.fmt.format(writer, "Target {d}{s} >{s}\n", .{ hit.target.length(), A.Unit, hit.target.identifier });
@@ -113,7 +102,7 @@ pub fn AlnoutWriter(comptime A: type) type {
 
                     var count: usize = 0;
                     while (top_iter.next()) |op| {
-                        var ch = query.data[query_idx];
+                        var ch = queryLetter(query_idx, query, hit);
                         switch (op) {
                             .match, .mismatch, .insertion => query_idx += 1,
                             .deletion => ch = '-',
@@ -143,8 +132,8 @@ pub fn AlnoutWriter(comptime A: type) type {
                         const ch: u8 = sym: {
                             switch (op) {
                                 .match, .mismatch => {
-                                    const query_letter = query.data[query_match_idx];
-                                    const target_letter = hit.target.data[target_match_idx];
+                                    const query_letter = queryLetter(query_match_idx, query, hit);
+                                    const target_letter = targetLetter(target_match_idx, hit);
                                     query_match_idx += 1;
                                     target_match_idx += 1;
                                     break :sym matchSymbol(query_letter, target_letter);
@@ -179,7 +168,7 @@ pub fn AlnoutWriter(comptime A: type) type {
 
                     count = 0;
                     while (bottom_iter.next()) |op| {
-                        var ch = hit.target.data[target_idx];
+                        var ch = targetLetter(target_idx, hit);
                         switch (op) {
                             .match, .mismatch, .deletion => target_idx += 1,
                             .insertion => ch = '-',
@@ -235,6 +224,14 @@ pub fn AlnoutWriter(comptime A: type) type {
             }
         }
 
+        fn queryLetter(index: usize, query: Sequence(A), hit: SearchHit(A)) u8 {
+            if (hit.reverse_match) {
+                return A.complement(query.data[query.length() - index - 1]);
+            } else {
+                return query.data[index];
+            }
+        }
+
         fn queryStrand(hit: SearchHit(A)) u8 {
             return if (hit.reverse_match) '-' else '+';
         }
@@ -242,6 +239,11 @@ pub fn AlnoutWriter(comptime A: type) type {
         fn targetPos(index: usize, hit: SearchHit(A)) usize {
             _ = hit;
             return index + 1;
+        }
+
+        fn targetLetter(index: usize, hit: SearchHit(A)) u8 {
+            _ = hit;
+            return hit.target.data[index];
         }
 
         fn targetStrand(hit: SearchHit(A)) u8 {
