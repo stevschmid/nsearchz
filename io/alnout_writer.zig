@@ -36,12 +36,12 @@ pub fn AlnoutWriter(comptime A: type) type {
     return struct {
         const MaxColumnsPerAlignmentLine = 60;
 
-        pub fn write(unbuffered_writer: anytype, query: Sequence(A), hits: SearchHitList(A)) !void {
+        pub fn write(unbuffered_writer: anytype, base_query: Sequence(A), hits: SearchHitList(A)) !void {
             // buffer, IO directly is slow
             var buffered_writer = std.io.bufferedWriter(unbuffered_writer);
             var writer = buffered_writer.writer();
 
-            try std.fmt.format(writer, "Query >{s}\n", .{query.identifier});
+            try std.fmt.format(writer, "Query >{s}\n", .{base_query.identifier});
             try std.fmt.format(writer, " %Id   TLen  Target\n", .{});
 
             for (hits.list.items) |hit| {
@@ -50,9 +50,20 @@ pub fn AlnoutWriter(comptime A: type) type {
 
             try std.fmt.format(writer, "\n", .{});
 
+            var reverse_query: ?Sequence(A) = null;
+            defer if (reverse_query != null) reverse_query.?.deinit();
+
             for (hits.list.items) |hit| {
                 if (hit.cigar.isEmpty())
                     continue;
+
+                if (hit.reverse_match) {
+                    reverse_query = try base_query.clone();
+                    reverse_query.?.reverse();
+                    reverse_query.?.complement();
+                }
+
+                const query = if (hit.reverse_match) reverse_query.? else base_query;
 
                 try std.fmt.format(writer, " Query {d}{s} >{s}\n", .{ query.length(), A.Unit, query.identifier });
                 try std.fmt.format(writer, "Target {d}{s} >{s}\n", .{ hit.target.length(), A.Unit, hit.target.identifier });
@@ -91,11 +102,14 @@ pub fn AlnoutWriter(comptime A: type) type {
                 var bottom_iter = cigar.iterator();
 
                 while (!top_iter.isEmpty()) {
+                    const query_idx_line_start = query_idx;
+                    const target_idx_line_start = target_idx;
+
                     // Qry  1 + GGTGAGACGTTACGCAATAAATTGA 25
                     try std.fmt.format(writer, "Qry ", .{});
-                    try printLength(writer, max_length, query_idx + 1);
+                    try printLength(writer, max_length, queryPos(query_idx, query, hit), .left);
 
-                    try std.fmt.format(writer, " + ", .{});
+                    try std.fmt.format(writer, " {c} ", .{queryStrand(hit)});
 
                     var count: usize = 0;
                     while (top_iter.next()) |op| {
@@ -113,7 +127,7 @@ pub fn AlnoutWriter(comptime A: type) type {
                     }
 
                     try std.fmt.format(writer, " ", .{});
-                    try printLength(writer, max_length, query_idx);
+                    try printLength(writer, max_length, queryPos(query_idx - 1, query, hit), .right);
                     try std.fmt.format(writer, "\n", .{});
 
                     //          |||||||||||||||||||||||||
@@ -121,13 +135,30 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try printPadding(writer, max_length);
                     try std.fmt.format(writer, "   ", .{});
 
+                    var query_match_idx = query_idx_line_start;
+                    var target_match_idx = target_idx_line_start;
+
                     count = 0;
                     while (middle_iter.next()) |op| {
-                        const ch: u8 = switch (op) {
-                            .match => '|',
-                            else => ' ',
+                        const ch: u8 = sym: {
+                            switch (op) {
+                                .match, .mismatch => {
+                                    const query_letter = query.data[query_match_idx];
+                                    const target_letter = hit.target.data[target_match_idx];
+                                    query_match_idx += 1;
+                                    target_match_idx += 1;
+                                    break :sym matchSymbol(query_letter, target_letter);
+                                },
+                                .deletion => {
+                                    target_match_idx += 1;
+                                    break :sym ' ';
+                                },
+                                .insertion => {
+                                    query_match_idx += 1;
+                                    break :sym ' ';
+                                },
+                            }
                         };
-                        _ = ch;
 
                         try writer.writeByte(ch);
 
@@ -142,9 +173,9 @@ pub fn AlnoutWriter(comptime A: type) type {
 
                     // Tgt  1 + GGTGAGACGTTACGCAATAAATTGA 25
                     try std.fmt.format(writer, "Tgt ", .{});
-                    try printLength(writer, max_length, target_idx + 1);
+                    try printLength(writer, max_length, targetPos(target_idx, hit), .left);
 
-                    try std.fmt.format(writer, " + ", .{});
+                    try std.fmt.format(writer, " {c} ", .{targetStrand(hit)});
 
                     count = 0;
                     while (bottom_iter.next()) |op| {
@@ -162,7 +193,7 @@ pub fn AlnoutWriter(comptime A: type) type {
                     }
 
                     try std.fmt.format(writer, " ", .{});
-                    try printLength(writer, max_length, target_idx);
+                    try printLength(writer, max_length, targetPos(target_idx - 1, hit), .right);
                     try std.fmt.format(writer, "\n", .{});
 
                     try std.fmt.format(writer, "\n", .{});
@@ -196,6 +227,34 @@ pub fn AlnoutWriter(comptime A: type) type {
             }
         }
 
+        fn queryPos(index: usize, query: Sequence(A), hit: SearchHit(A)) usize {
+            if (hit.reverse_match) {
+                return query.length() - index;
+            } else {
+                return index + 1;
+            }
+        }
+
+        fn queryStrand(hit: SearchHit(A)) u8 {
+            return if (hit.reverse_match) '-' else '+';
+        }
+
+        fn targetPos(index: usize, hit: SearchHit(A)) usize {
+            _ = hit;
+            return index + 1;
+        }
+
+        fn targetStrand(hit: SearchHit(A)) u8 {
+            _ = hit;
+            return '+';
+        }
+
+        fn matchSymbol(a: u8, b: u8) u8 {
+            if (a == b) return '|';
+            if (A.match(a, b)) return '+';
+            return ' ';
+        }
+
         fn printPadding(writer: anytype, length: usize) !void {
             const max = std.fmt.count("{d}", .{length});
             var cur: usize = 0;
@@ -205,15 +264,14 @@ pub fn AlnoutWriter(comptime A: type) type {
             }
         }
 
-        fn printLength(writer: anytype, max_length: usize, length: usize) !void {
+        const Pad = enum { left, right };
+        fn printLength(writer: anytype, max_length: usize, length: usize, pad: Pad) !void {
             const max = std.fmt.count("{d}", .{max_length});
             var cur = std.fmt.count("{d}", .{length});
 
-            while (cur < max) : (cur += 1) {
-                try std.fmt.format(writer, " ", .{});
-            }
-
+            if (pad == .left) try writer.writeByteNTimes(' ', max - cur);
             try std.fmt.format(writer, "{d}", .{length});
+            if (pad == .right) try writer.writeByteNTimes(' ', max - cur);
         }
     };
 }
@@ -260,7 +318,7 @@ test "multiple hits per query" {
 
     try hits.list.append(try SearchHit(DNA).init(allocator, target1, cigar, false));
 
-    var buffer: [1000]u8 = undefined;
+    var buffer: [4096]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
     try AlnoutWriter(DNA).write(fbs.writer(), query, hits);
 
@@ -308,7 +366,7 @@ test "dna" {
     try cigar.addFromString("1=1X1=2X7=1X2=1X11=1X17=2X1=1X29=1X4=3X3=");
     try hits.list.append(try SearchHit(DNA).init(allocator, target, cigar, false));
 
-    var buffer: [1000]u8 = undefined;
+    var buffer: [4096]u8 = undefined;
     var fbs = std.io.fixedBufferStream(&buffer);
     try AlnoutWriter(DNA).write(fbs.writer(), query, hits);
 
@@ -336,40 +394,49 @@ test "dna" {
     try std.testing.expectEqualStrings(expected, fbs.getWritten());
 }
 
-// auto entry = std::make_pair(
-//   Sequence< DNA >( "RF00966;mir-676;ABRQ01840532.1/340-428   9813:Procavia "
-//                    "capensis (cape rock hyrax)",
-//                    "CUUUGCCUGAACGCAAGACUCUUCAACCUCAGGACUUGCAGAAUUGGUAGA"
-//                    "AUGCCGUCCUAAGGUUGUUGAGUUCUGUGUUUGGAGGC" ),
-//   HitList< DNA >( {
-//     { { "RF00966;mir-676;AAGV020395671.1/1356-1444   9361:Dasypus "
-//         "novemcinctus (nine-banded armadillo)",
-//         "CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCCUAAGGU"
-//         "UGUUGAGUUCUGCGUUUCUGGGC" },
-//       "1=1X1=2X7=1X2=1X11=1X17=2X1=1X29=1X4=3X3=" },
-//   } ) );
+test "dna minus" {
+    const allocator = std.testing.allocator;
 
-// std::ostringstream oss;
-// Alnout::Writer< DNA > writer( oss );
+    var cigar = Cigar.init(allocator);
+    defer cigar.deinit();
 
-// SECTION( "Default" ) {
-//   writer << entry;
-//   REQUIRE( oss.str() == AlnoutOutputForDNA );
-// }
+    var hits = SearchHitList(DNA).init(allocator);
+    defer hits.deinit();
 
-// const char AlnoutOutputForDNA[] = R"(Query >RF00966;mir-676;ABRQ01840532.1/340-428   9813:Procavia capensis (cape rock hyrax)
-//  %Id   TLen  Target
-//  85%     89  RF00966;mir-676;AAGV020395671.1/1356-1444   9361:Dasypus novemcinctus (nine-banded armadillo)
+    // 2D1X8=2I1=1X4=1X9=1I
+    var query = try Sequence(DNA).init(allocator, "RevComp of Procavia capensis", "GCCTCCAAACACAGAACTCAACAACCTTAGGACGGCATTCTACCAATTCTGCAAGTCCTGAGGTTGAAGAGTCTTGCGTTCAGGCAAAG");
+    defer query.deinit();
 
-//  Query 89nt >RF00966;mir-676;ABRQ01840532.1/340-428   9813:Procavia capensis (cape rock hyrax)
-// Target 89nt >RF00966;mir-676;AAGV020395671.1/1356-1444   9361:Dasypus novemcinctus (nine-banded armadillo)
+    var target = try Sequence(DNA).init(allocator, "Dasypus novemcinctus", "CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCCUAAGGUUGUUGAGUUCUGCGUUUCUGGGC");
+    defer target.deinit();
 
-// Qry  1 + CUUUGCCUGAACGCAAGACUCUUCAACCUCAGGACUUGCAGAAUUGGUAGAAUGCCGUCC 60
-//          | |  ||||||| || ||||||||||| |||||||||||||||||  | |||||||||||
-// Tgt  1 + CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCC 60
+    try cigar.addFromString("1=1X1=2X7=1X2=1X11=1X17=2X1=1X29=1X4=3X3=");
+    try hits.list.append(try SearchHit(DNA).init(allocator, target, cigar, true));
 
-// Qry 61 + UAAGGUUGUUGAGUUCUGUGUUUGGAGGC 89
-//          |||||||||||||||||| ||||   |||
-// Tgt 61 + UAAGGUUGUUGAGUUCUGCGUUUCUGGGC 89
+    var buffer: [4096]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+    try AlnoutWriter(DNA).write(fbs.writer(), query, hits);
 
-// 89 cols, 76 ids (85.4%), 0 gaps (0.0%)
+    const expected =
+        \\Query >RevComp of Procavia capensis
+        \\ %Id   TLen  Target
+        \\ 85%     89  Dasypus novemcinctus
+        \\
+        \\ Query 89nt >RevComp of Procavia capensis
+        \\Target 89nt >Dasypus novemcinctus
+        \\
+        \\Qry 89 - CTTTGCCTGAACGCAAGACTCTTCAACCTCAGGACTTGCAGAATTGGTAGAATGCCGTCC 30
+        \\         | +  ||+|||| || |||+|++|||| +||||||++||||||++  + |||+||||+||   
+        \\Tgt  1 + CGUCACCUGAACUCAUGACUCUUCAACUUCAGGACUUGCAGAAUUAAUGGAAUGCCGUCC 60
+        \\
+        \\Qry 29 - TAAGGTTGTTGAGTTCTGTGTTTGGAGGC 1 
+        \\         +||||++|++|||++|+| |+++   |||   
+        \\Tgt 61 + UAAGGUUGUUGAGUUCUGCGUUUCUGGGC 89
+        \\
+        \\89 cols, 76 ids (85.4%), 0 gaps (0.0%)
+        \\
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, fbs.getWritten());
+}

@@ -270,8 +270,8 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
-    // const allocator = std.heap.c_allocator;
+    // const allocator = gpa.allocator();
+    const allocator = std.heap.c_allocator;
 
     const args = getArgs(allocator) catch std.os.exit(1);
 

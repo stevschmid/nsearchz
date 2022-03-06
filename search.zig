@@ -501,3 +501,7 @@ test "ultrasequence" {
     // expect nsearch output
     try std.testing.expectApproxEqAbs(@as(f32, 0.53), hit.cigar.identity(), 0.01);
 }
+
+test "strand support" {
+    try std.testing.expectEqualStrings("TODO", "PENDING");
+}
