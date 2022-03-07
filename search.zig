@@ -502,6 +502,119 @@ test "ultrasequence" {
     try std.testing.expectApproxEqAbs(@as(f32, 0.53), hit.cigar.identity(), 0.01);
 }
 
+const databaseContents =
+    \\>RF00807;mir-314;AFFE01007792.1/82767-82854   42026:Drosophila bipectinata
+    \\UCGUAACUUGUGUGGCUUCGAAUGUACCUAGUUGAGGAAAAAUCAGUUUG
+    \\GAUUUUGUUACCUCUGGUAUUCGAGCCAAUAAGUUCGG
+    \\>RF00807;mir-314;AAFS01000446.1/64778-64866   46245:Drosophila pseudoobscura pseudoobscura
+    \\UCGUAACUUGUGUGGCUUCGAAUGUACCUAGUUGAGGAAAACUCCGAAAU
+    \\GGAUUUUGUUACCUCUGGUAUUCGAGCCAAUAAGUUCGG
+    \\>RF00807;mir-314;AANI01017486.1/342740-342830   7244:Drosophila virilis
+    \\UCGUAACUUGUGUGGCUUGAAUGUACCUGGUUGAGGAACGAAUUCAACGU
+    \\UUGGAUUUUGUUGCCUUUGGUAUUCGAGCCAAUAAGUUCGG
+    \\>RF00807;mir-314;AAPU01011627.1/156896-156990   7230:Drosophila mojavensis
+    \\UCGUAACUUGUGUGGCUUCGAAUGUACCUCGUCGAGCGAAAAGCGAAUUC
+    \\AUUGUUGGAUUUUGUUGCUCUUGGUAUUCGAGCCAAUAAGUUCGG
+    \\>RF00752;mir-14;AAWU01029067.1/5309-5242   7176:Culex quinquefasciatus (southern house mosquito)
+    \\UGUGGGAGCGAGAUUAAGGCUUGCUGGUUUCACGUUCGAGUAAAGUCAGU
+    \\CUUUUUCUCUCUCCUAUU
+    \\>RF00752;mir-14;AAGE02012112.1/774-706   7159:Aedes aegypti (yellow fever mosquito)
+    \\UGUGGGAGCGAGAUUAAGGCUUGCUGGUCAUUUAUUACACUCGAAGUCAG
+    \\UCUUUUUCUCUCUCCUAUU
+    \\>RF00752;mir-14;AANI01011011.1/11101-11163   7244:Drosophila virilis
+    \\UGUGGGAGCGAGACGGGGACUCACUGUGCUUUUUAUAUAGUCAGUCUUUU
+    \\UCUCUCUCCUAUA
+    \\>RF00715;mir-383;AAMC01036319.1/13960-13888   8364:Xenopus (Silurana) tropicalis (western clawed frog)
+    \\CUCCUCAGAUCAGAAGGUGAUUGUGGCUUUUAGUAGAUAUUAAGCAGCCA
+    \\CAGCACUGCCUGGUCAGAAAGAG
+    \\>RF00715;mir-383;AAQR03137803.1/1757-1829   30611:Otolemur garnettii (small-eared galago)
+    \\CUCCUCAGAUCAGAAGGUGAUUGUGGCUUUGGGUGCAUGGUUAUAAGCCA
+    \\CAGCACUGCCUGGUCAGAAAGAG
+    \\>RF00715;mir-383;AFEY01400405.1/5982-5910   9305:Sarcophilus harrisii (Tasmanian devil)
+    \\CUCCUCAGAUCAGAAGGUGAUUGUGGCUUUGGGCAGACAUGGAACAGCCA
+    \\CAUCACUGGCUGGUCAGAAAGAG
+    \\>RF01157;sn1185;DQ789405.1/1-66   6238:Caenorhabditis briggsae
+    \\AUCGGUGAUGUGAUAUCCAGUUCUGCUACUGAAGCGUUGUGAAGAUUAAC
+    \\UUUCCCCGUCUGAGAU
+    \\>RF01157;sn1185;AEHI01092347.1/1008-1073   860376:Caenorhabditis angaria
+    \\ACUGAUGAUGUUAACUCCAGUUCUGCUACUGAAUGAAUGUGACGAUAUUC
+    \\UUUCCCCGACUGAGGU
+    \\>RF01157;sn1185;ABLE03029241.1/4849-4913   281687:Caenorhabditis japonica
+    \\AUUGAUGAUGUUCAUCCAGUUCUGCUACUGAAUCAGUGUGAAGAUAUUCU
+    \\UUCCCCGACUGAGAU
+    \\>RF01885;HSR-omega_1;AFPP01029324.1/15839-15914   1041015:Drosophila rhopaloa
+    \\ACCACCUAACCAAGCAAUAUGUAUUUCUUUCUCUAAACUUUAUAGUUGGG
+    \\CGUUGAAAGUUGAUAUCGAUCCGUGA
+    \\>RF01885;HSR-omega_1;AFFH01007186.1/256640-256716   30033:Drosophila kikkawai
+    \\AUCACUUAACCAGCAAUAUGUAUUUCUUUCUCUAAACUUUAUAGUUGGGC
+    \\GUUGAAAGUUGAUACGCGAACGUGAAA
+    \\>RF01885;HSR-omega_1;AAPU01011178.1/205842-205767   7230:Drosophila mojavensis
+    \\ACACGUUAACCAAGCAUUAUGUAUUUCUUUCUCUAAACUUUAUAGUUGGG
+    \\CGUUGAAAGUUGAUACGCGAUCGAAC
+    \\
+;
+
 test "strand support" {
-    try std.testing.expectEqualStrings("TODO", "PENDING");
+    const FastaReader = @import("io/fasta_reader.zig").FastaReader;
+
+    const allocator = std.testing.allocator;
+
+    var db_source = std.io.StreamSource{ .const_buffer = std.io.fixedBufferStream(databaseContents) };
+
+    var db_reader = FastaReader(alphabet.DNA).init(allocator, &db_source);
+    defer db_reader.deinit();
+
+    var sequences = SequenceList(alphabet.DNA).init(allocator);
+    defer sequences.deinit();
+
+    try sequences.list.append(try Sequence(alphabet.DNA).init(allocator, "DB2", "GTCCGACGCAATAAACTATATGGGG"));
+
+    while (try db_reader.next()) |sequence| {
+        try sequences.list.append(sequence);
+    }
+
+    var database = try databaseType.init(allocator, sequences.list.toOwnedSlice(), null);
+    defer database.deinit();
+
+    var query = try Sequence(alphabet.DNA).init(
+        allocator,
+        "RF00807;mir-314;AAPT01020574.1/773332-773257   7222:Drosophila grimshawi",
+        "UCGUAACUUGUGUGGCUUCGAAUGUACCUGGCUAAGGAAAGUUGGAUUUCCUAGGUAUUCGAGCCAAUAAGUUCGG",
+    );
+    defer query.deinit();
+
+    // reverse complement so we test minus strand search
+    query.reverse();
+    query.complement();
+
+    {
+        var hits = SearchHitList(alphabet.DNA).init(allocator);
+        defer hits.deinit();
+
+        var search = try Search(databaseType).init(allocator, &database, .{ .strand = .plus });
+        defer search.deinit();
+
+        try search.search(query, &hits);
+        try std.testing.expectEqual(@as(usize, 0), hits.list.items.len);
+    }
+    {
+        var hits = SearchHitList(alphabet.DNA).init(allocator);
+        defer hits.deinit();
+
+        var search = try Search(databaseType).init(allocator, &database, .{ .strand = .minus });
+        defer search.deinit();
+
+        try search.search(query, &hits);
+        try std.testing.expectEqual(@as(usize, 1), hits.list.items.len);
+    }
+    {
+        var hits = SearchHitList(alphabet.DNA).init(allocator);
+        defer hits.deinit();
+
+        var search = try Search(databaseType).init(allocator, &database, .{ .strand = .both });
+        defer search.deinit();
+
+        try search.search(query, &hits);
+        try std.testing.expectEqual(@as(usize, 1), hits.list.items.len);
+    }
 }
