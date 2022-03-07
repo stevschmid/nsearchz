@@ -98,7 +98,11 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try std.fmt.format(writer, "Qry ", .{});
                     try printLength(writer, max_length, queryPos(query_idx, query, hit), .left);
 
-                    try std.fmt.format(writer, " {c} ", .{queryStrand(hit)});
+                    if (A.SupportsStrands) {
+                        try std.fmt.format(writer, " {c} ", .{queryStrand(hit)});
+                    } else {
+                        try std.fmt.format(writer, " ", .{});
+                    }
 
                     var count: usize = 0;
                     while (top_iter.next()) |op| {
@@ -122,7 +126,12 @@ pub fn AlnoutWriter(comptime A: type) type {
                     //          |||||||||||||||||||||||||
                     try std.fmt.format(writer, "    ", .{});
                     try printPadding(writer, max_length);
-                    try std.fmt.format(writer, "   ", .{});
+
+                    if (A.SupportsStrands) {
+                        try std.fmt.format(writer, "   ", .{});
+                    } else {
+                        try std.fmt.format(writer, " ", .{});
+                    }
 
                     var query_match_idx = query_idx_line_start;
                     var target_match_idx = target_idx_line_start;
@@ -136,7 +145,7 @@ pub fn AlnoutWriter(comptime A: type) type {
                                     const target_letter = targetLetter(target_match_idx, hit);
                                     query_match_idx += 1;
                                     target_match_idx += 1;
-                                    break :sym matchSymbol(query_letter, target_letter);
+                                    break :sym A.matchSymbol(query_letter, target_letter);
                                 },
                                 .deletion => {
                                     target_match_idx += 1;
@@ -164,7 +173,11 @@ pub fn AlnoutWriter(comptime A: type) type {
                     try std.fmt.format(writer, "Tgt ", .{});
                     try printLength(writer, max_length, targetPos(target_idx, hit), .left);
 
-                    try std.fmt.format(writer, " {c} ", .{targetStrand(hit)});
+                    if (A.SupportsStrands) {
+                        try std.fmt.format(writer, " {c} ", .{targetStrand(hit)});
+                    } else {
+                        try std.fmt.format(writer, " ", .{});
+                    }
 
                     count = 0;
                     while (bottom_iter.next()) |op| {
@@ -251,12 +264,6 @@ pub fn AlnoutWriter(comptime A: type) type {
             return '+';
         }
 
-        fn matchSymbol(a: u8, b: u8) u8 {
-            if (a == b) return '|';
-            if (A.match(a, b)) return '+';
-            return ' ';
-        }
-
         fn printPadding(writer: anytype, length: usize) !void {
             const max = std.fmt.count("{d}", .{length});
             var cur: usize = 0;
@@ -279,6 +286,7 @@ pub fn AlnoutWriter(comptime A: type) type {
 }
 
 const DNA = alphabet.DNA;
+const Protein = alphabet.Protein;
 
 test "multiple hits per query" {
     const allocator = std.testing.allocator;
@@ -436,6 +444,115 @@ test "dna minus" {
         \\Tgt 61 + UAAGGUUGUUGAGUUCUGCGUUUCUGGGC 89
         \\
         \\89 cols, 76 ids (85.4%), 0 gaps (0.0%)
+        \\
+        \\
+    ;
+
+    try std.testing.expectEqualStrings(expected, fbs.getWritten());
+}
+
+test "protein" {
+    const allocator = std.testing.allocator;
+
+    // auto entry1 = std::make_pair( Sequence< Protein >( "query1", "LAFQGVRN" ),
+    //                               HitList< Protein >( {
+    //                                 { { "target50", "MAFQGVRS" }, "1X6=1X" },
+    //                                 { { "target114", "LAGQGSAN" }, "4=3X1=" },
+    //                               } ) );
+    // auto entry2 =
+    //   std::make_pair( Sequence< Protein >( "query2", "GGGGGYFDEATGVCPF" ),
+    //                   HitList< Protein >( {
+    //                     { { "target1337", "YFDEATGICPFQQQ" }, "5I7=1X3=3D" },
+    //                   } ) );
+
+    // std::ostringstream oss;
+    // Alnout::Writer< Protein > writer( oss );
+
+    // writer << entry1;
+    // writer << entry2;
+
+    // REQUIRE( oss.str() == AlnoutOutputForProtein );
+
+    var buffer: [4096]u8 = undefined;
+    var fbs = std.io.fixedBufferStream(&buffer);
+
+    {
+        var hits = SearchHitList(Protein).init(allocator);
+        defer hits.deinit();
+
+        var query = try Sequence(Protein).init(allocator, "query1", "LAFQGVRN");
+        defer query.deinit();
+
+        var target50 = try Sequence(Protein).init(allocator, "target50", "MAFQGVRS");
+        defer target50.deinit();
+        var cigar50 = Cigar.init(allocator);
+        defer cigar50.deinit();
+        try cigar50.addFromString("1X6=1X");
+        try hits.list.append(try SearchHit(Protein).init(allocator, target50, cigar50, false));
+
+        var target114 = try Sequence(Protein).init(allocator, "target114", "LAGQGSAN");
+        defer target114.deinit();
+        var cigar114 = Cigar.init(allocator);
+        defer cigar114.deinit();
+        try cigar114.addFromString("4=3X1=");
+        try hits.list.append(try SearchHit(Protein).init(allocator, target114, cigar114, false));
+
+        try AlnoutWriter(Protein).write(fbs.writer(), query, hits);
+    }
+
+    {
+        var hits = SearchHitList(Protein).init(allocator);
+        defer hits.deinit();
+
+        var query = try Sequence(Protein).init(allocator, "query2", "GGGGGYFDEATGVCPF");
+        defer query.deinit();
+
+        var target1337 = try Sequence(Protein).init(allocator, "target1337", "YFDEATGICPFQQQ");
+        defer target1337.deinit();
+        var cigar1337 = Cigar.init(allocator);
+        defer cigar1337.deinit();
+        try cigar1337.addFromString("5I7=1X3=3D");
+        try hits.list.append(try SearchHit(Protein).init(allocator, target1337, cigar1337, false));
+
+        try AlnoutWriter(Protein).write(fbs.writer(), query, hits);
+    }
+
+    const expected =
+        \\Query >query1
+        \\ %Id   TLen  Target
+        \\ 75%      8  target50
+        \\ 63%      8  target114
+        \\
+        \\ Query 8aa >query1
+        \\Target 8aa >target50
+        \\
+        \\Qry 1 LAFQGVRN 8
+        \\      :||||||.  
+        \\Tgt 1 MAFQGVRS 8
+        \\
+        \\8 cols, 6 ids (75.0%), 0 gaps (0.0%)
+        \\
+        \\ Query 8aa >query1
+        \\Target 8aa >target114
+        \\
+        \\Qry 1 LAFQGVRN 8
+        \\      || ||  |  
+        \\Tgt 1 LAGQGSAN 8
+        \\
+        \\8 cols, 5 ids (62.5%), 0 gaps (0.0%)
+        \\
+        \\Query >query2
+        \\ %Id   TLen  Target
+        \\ 91%     14  target1337
+        \\
+        \\ Query 16aa >query2
+        \\Target 14aa >target1337
+        \\
+        \\Qry  6 YFDEATGVCPF 16
+        \\       |||||||:|||   
+        \\Tgt  1 YFDEATGICPF 11
+        \\
+        \\11 cols, 10 ids (90.9%), 0 gaps (0.0%)
         \\
         \\
     ;

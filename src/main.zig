@@ -92,7 +92,7 @@ pub fn Worker(comptime DatabaseType: type) type {
 
                 if (hits.list.items.len > 0) {
                     const out = try context.allocator.create(std.atomic.Queue(Result(DatabaseType.Alphabet)).Node);
-                    out.data = try Result(alphabet.DNA).init(allocator, query, hits);
+                    out.data = try Result(DatabaseType.Alphabet).init(allocator, query, hits);
                     context.results.put(out);
 
                     _ = context.hit_count.fetchAdd(hits.list.items.len, .Monotonic);
@@ -136,7 +136,7 @@ pub fn Writer(comptime A: type) type {
                 var result = node.?.data;
                 defer result.deinit();
 
-                try AlnoutWriter(alphabet.DNA).write(file.writer(), result.query, result.hits);
+                try AlnoutWriter(A).write(file.writer(), result.query, result.hits);
 
                 context.allocator.destroy(node.?);
                 _ = context.written_count.fetchAdd(1, .Monotonic);
@@ -331,7 +331,10 @@ pub fn main() !void {
 
     const args = parseArgs(allocator) catch std.os.exit(1);
 
-    try SearchExec(alphabet.DNA).run(allocator, args);
+    switch (args.mode) {
+        .dna => try SearchExec(alphabet.DNA).run(allocator, args),
+        .protein => try SearchExec(alphabet.Protein).run(allocator, args),
+    }
 }
 
 test "specs" {

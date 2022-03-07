@@ -128,18 +128,22 @@ pub fn Search(comptime DatabaseType: type) type {
         pub fn search(self: *Self, query: Sequence(A), hits: *SearchHitList(A)) !void {
             hits.list.clearRetainingCapacity();
 
-            if (self.options.strand == .plus or self.options.strand == .both) {
+            if (A.SupportsStrands) {
+                if (self.options.strand == .plus or self.options.strand == .both) {
+                    try self.do(query, hits, false);
+                }
+
+                if (self.options.strand == .minus or self.options.strand == .both) {
+                    var reverse_complement = try query.clone();
+                    defer reverse_complement.deinit();
+
+                    reverse_complement.reverse();
+                    reverse_complement.complement();
+
+                    try self.do(reverse_complement, hits, true);
+                }
+            } else {
                 try self.do(query, hits, false);
-            }
-
-            if (self.options.strand == .minus or self.options.strand == .both) {
-                var reverse_complement = try query.clone();
-                defer reverse_complement.deinit();
-
-                reverse_complement.reverse();
-                reverse_complement.complement();
-
-                try self.do(reverse_complement, hits, true);
             }
         }
 

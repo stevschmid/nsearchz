@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 
 pub const Protein = struct {
     pub const Unit = "aa";
+    pub const SupportsStrands = false;
 
     pub fn complement(letter: u8) u8 {
         return letter;
@@ -38,6 +39,9 @@ pub const Protein = struct {
     };
 
     pub fn mapToBits(aa: u8) ?u4 {
+        if (aa <= 'A' or aa >= 'Z')
+            return null;
+
         const idx: usize = aa - 'A';
         assert(idx <= BitMapping.len);
 
@@ -87,6 +91,14 @@ pub const Protein = struct {
 
     pub fn match(a: u8, b: u8) bool {
         return score(a, b) >= 4;
+    }
+
+    pub fn matchSymbol(a: u8, b: u8) u8 {
+        const s = score(a, b);
+        if (s >= 4) return '|';
+        if (s >= 2) return ':';
+        if (s >= 0) return '.';
+        return ' ';
     }
 };
 

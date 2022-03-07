@@ -3,6 +3,7 @@ const assert = std.debug.assert;
 
 pub const DNA = struct {
     pub const Unit = "nt";
+    pub const SupportsStrands = true;
 
     pub fn complement(letter: u8) u8 {
         return switch (letter) {
@@ -79,6 +80,12 @@ pub const DNA = struct {
 
     pub fn match(a: u8, b: u8) bool {
         return score(a, b) > 0;
+    }
+
+    pub fn matchSymbol(a: u8, b: u8) u8 {
+        if (a == b) return '|';
+        if (match(a, b)) return '+';
+        return ' ';
     }
 };
 

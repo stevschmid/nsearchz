@@ -4,12 +4,18 @@ const print = std.debug.print;
 const ArgParser = @import("arg_parser.zig").ArgParser;
 const Strand = @import("search.zig").Strand;
 
+const Mode = enum {
+    dna,
+    protein,
+};
+
 pub const Args = struct {
     query: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     db: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     out: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     min_identity: f32 = undefined,
     strand: Strand = .both,
+    mode: Mode = .dna,
 
     max_hits: u32 = 1,
     max_rejects: u32 = 16,
@@ -31,6 +37,7 @@ fn printUsage() void {
         \\ --max-hits <maxaccepts>         Maximum number of successful hits reported for one query [default: 1].
         \\ --max-rejects <maxrejects>      Abort after this many candidates were rejected [default: 16].
         \\ --strand <strand>               Strand to search on (plus, minus or both). If minus (or both), queries are reverse complemented [default: both].
+        \\ --mode <mode>                   dna or protein [default: dna].
     , .{});
 }
 
