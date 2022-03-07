@@ -4,7 +4,7 @@ const print = std.debug.print;
 const ArgParser = @import("arg_parser.zig").ArgParser;
 const Strand = @import("search.zig").Strand;
 
-const Args = struct {
+pub const Args = struct {
     query: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     db: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
     out: [std.fs.MAX_PATH_BYTES:0]u8 = undefined,
@@ -34,7 +34,7 @@ fn printUsage() void {
     , .{});
 }
 
-pub fn getArgs(allocator: std.mem.Allocator) !Args {
+pub fn parseArgs(allocator: std.mem.Allocator) !Args {
     const required = [_][]const u8{
         "--query",
         "--db",

@@ -27,7 +27,8 @@ const Highscores = @import("highscores.zig").Highscores;
 const bio = @import("bio/bio.zig");
 const alphabet = bio.alphabet;
 
-const getArgs = @import("args.zig").getArgs;
+const Args = @import("args.zig").Args;
+const parseArgs = @import("args.zig").parseArgs;
 
 const Progress = @import("progress.zig").Progress;
 
@@ -153,20 +154,173 @@ const SearchStage = enum {
     write_hits,
 };
 
-pub fn main() !void {
-    const databaseType = Database(alphabet.DNA, 8);
+pub fn SearchExec(comptime A: type) type {
+    const KmerLength = switch (A) {
+        alphabet.DNA => 8,
+        alphabet.Protein => 5,
+        else => unreachable,
+    };
+
+    const databaseType = Database(A, KmerLength);
     const workerType = Worker(databaseType);
-    const writerType = Writer(alphabet.DNA);
+    const writerType = Writer(A);
 
-    progress.add(.read_database, "Read database", .bytes);
-    progress.add(.analyze_database, "Analyze database", .counts);
-    progress.add(.index_database, "Index database", .counts);
-    progress.add(.read_queries, "Read queries", .bytes);
-    progress.add(.search_database, "Search database", .counts);
-    progress.add(.write_hits, "Write hits", .counts);
+    return struct {
+        pub fn run(allocator: std.mem.Allocator, args: Args) !void {
+            progress.add(.read_database, "Read database", .bytes);
+            progress.add(.analyze_database, "Analyze database", .counts);
+            progress.add(.index_database, "Index database", .counts);
+            progress.add(.read_queries, "Read queries", .bytes);
+            progress.add(.search_database, "Search database", .counts);
+            progress.add(.write_hits, "Write hits", .counts);
 
-    try progress.start();
+            try progress.start();
 
+            const filePathToDatabase = std.mem.sliceTo(&args.db, 0);
+            const filePathToQuery = std.mem.sliceTo(&args.query, 0);
+            const filePathToOutput = std.mem.sliceTo(&args.out, 0);
+            const dir: std.fs.Dir = std.fs.cwd();
+
+            // Read DB
+            var bench_start = std.time.milliTimestamp();
+
+            var sequences = SequenceList(A).init(allocator);
+            defer sequences.deinit();
+
+            const db_file: std.fs.File = try dir.openFile(filePathToDatabase, .{ .read = true });
+            defer db_file.close();
+            var db_source = std.io.StreamSource{ .file = db_file };
+
+            var db_reader = FastaReader(A).init(allocator, &db_source);
+            defer db_reader.deinit();
+
+            progress.activate(.read_database);
+            while (try db_reader.next()) |sequence| {
+                try sequences.list.append(sequence);
+                progress.set(.read_database, db_reader.bytes_read, db_reader.bytes_total);
+            }
+
+            // Index
+            const callback = struct {
+                pub fn callback(typ: databaseType.ProgressType, a: usize, b: usize) void {
+                    switch (typ) {
+                        .analyze => {
+                            progress.activate(.analyze_database);
+                            progress.set(.analyze_database, a, b);
+                        },
+                        .index => {
+                            progress.activate(.index_database);
+                            progress.set(.index_database, a, b);
+                        },
+                    }
+                }
+            }.callback;
+
+            bench_start = std.time.milliTimestamp();
+            var db = try databaseType.init(allocator, sequences.list.toOwnedSlice(), callback);
+            defer db.deinit();
+
+            // Read Query
+            var queries = SequenceList(A).init(allocator);
+            defer queries.deinit();
+
+            const query_file: std.fs.File = try dir.openFile(filePathToQuery, .{ .read = true });
+            defer query_file.close();
+            var query_source = std.io.StreamSource{ .file = query_file };
+
+            var query_reader = FastaReader(A).init(allocator, &query_source);
+            defer query_reader.deinit();
+
+            progress.activate(.read_queries);
+            while (try query_reader.next()) |sequence| {
+                try queries.list.append(sequence);
+                progress.set(.read_queries, query_reader.bytes_read, query_reader.bytes_total);
+            }
+
+            // Fill queue
+            var queue = std.atomic.Queue(workerType.WorkItem).init();
+            var results = std.atomic.Queue(Result(A)).init();
+            var search_finished = std.atomic.Atomic(bool).init(false);
+
+            var search_count = std.atomic.Atomic(usize).init(0);
+            var hit_count = std.atomic.Atomic(usize).init(0);
+            var written_count = std.atomic.Atomic(usize).init(0);
+
+            var context: workerType.WorkerContext = .{
+                .allocator = allocator,
+                .queue = &queue,
+                .database = &db,
+                .results = &results,
+                .search_count = &search_count,
+                .hit_count = &hit_count,
+                .search_options = .{
+                    .max_accepts = args.max_hits,
+                    .max_rejects = args.max_rejects,
+                    .min_identity = args.min_identity,
+                    .strand = args.strand,
+                },
+            };
+
+            var writer_context: writerType.WriterContext = .{
+                .allocator = allocator,
+                .results = &results,
+                .search_finished = &search_finished,
+                .path = filePathToOutput,
+                .written_count = &written_count,
+            };
+
+            for (queries.list.items) |query| {
+                const node = try context.allocator.create(std.atomic.Queue(workerType.WorkItem).Node);
+                node.data = workerType.WorkItem{
+                    .query = query,
+                };
+                queue.put(node);
+            }
+
+            // Search in threads
+            bench_start = std.time.milliTimestamp();
+
+            const worker_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
+            const threads = try allocator.alloc(std.Thread, worker_count);
+            defer allocator.free(threads);
+
+            var writer_thread = try std.Thread.spawn(.{}, writerType.entryPoint, .{&writer_context});
+
+            for (threads) |*thread| {
+                thread.* = try std.Thread.spawn(.{}, workerType.entryPoint, .{&context});
+            }
+
+            // wait until queue is empty
+            progress.activate(.search_database);
+            while (!queue.isEmpty()) {
+                progress.set(.search_database, search_count.load(.SeqCst), queries.list.items.len);
+                std.time.sleep(50 * std.time.ns_per_ms);
+            }
+            progress.set(.search_database, queries.list.items.len, queries.list.items.len); // 100%
+
+            // wait for searches to finish
+            for (threads) |thread| {
+                thread.join();
+            }
+
+            // tell writer all searches are done, write remaining results and then be happy
+            _ = search_finished.swap(true, .SeqCst);
+
+            // wait until results are written
+            progress.activate(.write_hits);
+            while (!results.isEmpty()) {
+                progress.set(.write_hits, written_count.load(.SeqCst), hit_count.load(.SeqCst));
+                std.time.sleep(50 * std.time.ns_per_ms);
+            }
+            progress.set(.write_hits, hit_count.load(.SeqCst), hit_count.load(.SeqCst));
+            writer_thread.join();
+
+            progress.finish();
+        }
+    };
+}
+
+pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
 
@@ -175,148 +329,9 @@ pub fn main() !void {
         else => std.heap.c_allocator,
     };
 
-    const args = getArgs(allocator) catch std.os.exit(1);
+    const args = parseArgs(allocator) catch std.os.exit(1);
 
-    const filePathToDatabase = std.mem.sliceTo(&args.db, 0);
-    const filePathToQuery = std.mem.sliceTo(&args.query, 0);
-    const filePathToOutput = std.mem.sliceTo(&args.out, 0);
-    const dir: std.fs.Dir = std.fs.cwd();
-
-    // Read DB
-    var bench_start = std.time.milliTimestamp();
-
-    var sequences = SequenceList(alphabet.DNA).init(allocator);
-    defer sequences.deinit();
-
-    const db_file: std.fs.File = try dir.openFile(filePathToDatabase, .{ .read = true });
-    defer db_file.close();
-    var db_source = std.io.StreamSource{ .file = db_file };
-
-    var db_reader = FastaReader(alphabet.DNA).init(allocator, &db_source);
-    defer db_reader.deinit();
-
-    progress.activate(.read_database);
-    while (try db_reader.next()) |sequence| {
-        try sequences.list.append(sequence);
-        progress.set(.read_database, db_reader.bytes_read, db_reader.bytes_total);
-    }
-
-    // Index
-    const callback = struct {
-        pub fn callback(typ: databaseType.ProgressType, a: usize, b: usize) void {
-            switch (typ) {
-                .analyze => {
-                    progress.activate(.analyze_database);
-                    progress.set(.analyze_database, a, b);
-                },
-                .index => {
-                    progress.activate(.index_database);
-                    progress.set(.index_database, a, b);
-                },
-            }
-        }
-    }.callback;
-
-    bench_start = std.time.milliTimestamp();
-    var db = try databaseType.init(allocator, sequences.list.toOwnedSlice(), callback);
-    defer db.deinit();
-
-    // Read Query
-    var queries = SequenceList(alphabet.DNA).init(allocator);
-    defer queries.deinit();
-
-    const query_file: std.fs.File = try dir.openFile(filePathToQuery, .{ .read = true });
-    defer query_file.close();
-    var query_source = std.io.StreamSource{ .file = query_file };
-
-    var query_reader = FastaReader(alphabet.DNA).init(allocator, &query_source);
-    defer query_reader.deinit();
-
-    progress.activate(.read_queries);
-    while (try query_reader.next()) |sequence| {
-        try queries.list.append(sequence);
-        progress.set(.read_queries, query_reader.bytes_read, query_reader.bytes_total);
-    }
-
-    // Fill queue
-    var queue = std.atomic.Queue(workerType.WorkItem).init();
-    var results = std.atomic.Queue(Result(alphabet.DNA)).init();
-    var search_finished = std.atomic.Atomic(bool).init(false);
-
-    var search_count = std.atomic.Atomic(usize).init(0);
-    var hit_count = std.atomic.Atomic(usize).init(0);
-    var written_count = std.atomic.Atomic(usize).init(0);
-
-    var context: workerType.WorkerContext = .{
-        .allocator = allocator,
-        .queue = &queue,
-        .database = &db,
-        .results = &results,
-        .search_count = &search_count,
-        .hit_count = &hit_count,
-        .search_options = .{
-            .max_accepts = args.max_hits,
-            .max_rejects = args.max_rejects,
-            .min_identity = args.min_identity,
-            .strand = args.strand,
-        },
-    };
-
-    var writer_context: writerType.WriterContext = .{
-        .allocator = allocator,
-        .results = &results,
-        .search_finished = &search_finished,
-        .path = filePathToOutput,
-        .written_count = &written_count,
-    };
-
-    for (queries.list.items) |query| {
-        const node = try context.allocator.create(std.atomic.Queue(workerType.WorkItem).Node);
-        node.data = workerType.WorkItem{
-            .query = query,
-        };
-        queue.put(node);
-    }
-
-    // Search in threads
-    bench_start = std.time.milliTimestamp();
-
-    const worker_count = std.math.max(1, std.Thread.getCpuCount() catch 1);
-    const threads = try allocator.alloc(std.Thread, worker_count);
-    defer allocator.free(threads);
-
-    var writer_thread = try std.Thread.spawn(.{}, writerType.entryPoint, .{&writer_context});
-
-    for (threads) |*thread| {
-        thread.* = try std.Thread.spawn(.{}, workerType.entryPoint, .{&context});
-    }
-
-    // wait until queue is empty
-    progress.activate(.search_database);
-    while (!queue.isEmpty()) {
-        progress.set(.search_database, search_count.load(.SeqCst), queries.list.items.len);
-        std.time.sleep(50 * std.time.ns_per_ms);
-    }
-    progress.set(.search_database, queries.list.items.len, queries.list.items.len); // 100%
-
-    // wait for searches to finish
-    for (threads) |thread| {
-        thread.join();
-    }
-
-    // tell writer all searches are done, write remaining results and then be happy
-    _ = search_finished.swap(true, .SeqCst);
-
-    // wait until results are written
-    progress.activate(.write_hits);
-    while (!results.isEmpty()) {
-        progress.set(.write_hits, written_count.load(.SeqCst), hit_count.load(.SeqCst));
-        std.time.sleep(50 * std.time.ns_per_ms);
-    }
-    progress.set(.write_hits, hit_count.load(.SeqCst), hit_count.load(.SeqCst));
-    writer_thread.join();
-
-    progress.finish();
+    try SearchExec(alphabet.DNA).run(allocator, args);
 }
 
 test "specs" {
