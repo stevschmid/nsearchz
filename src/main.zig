@@ -2,6 +2,7 @@ const std = @import("std");
 const print = std.debug.print;
 const ArrayList = std.ArrayList;
 const Allocator = std.mem.Allocator;
+const builtin = @import("builtin");
 
 const utils = @import("utils.zig");
 const ea = @import("extend_align.zig");
@@ -168,8 +169,11 @@ pub fn main() !void {
 
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
-    const allocator = std.heap.c_allocator;
+
+    const allocator = switch (builtin.mode) {
+        .Debug => gpa.allocator(),
+        else => std.heap.c_allocator,
+    };
 
     const args = getArgs(allocator) catch std.os.exit(1);
 

@@ -24,7 +24,7 @@ fn printUsage() void {
         \\Zig-powered nsearch
         \\
         \\Usage:
-        \\ znsearch --query <queryfile> --db <dbfile> --out <outfile> --min-identity <minidentity> [--max-hits <maxaccepts>] [--max-rejects <maxrejects>] [--protein] [--strand <strand>]
+        \\ nsearchz --query <queryfile> --db <dbfile> --out <outfile> --min-identity <minidentity> [--max-hits <maxaccepts>] [--max-rejects <maxrejects>] [--protein] [--strand <strand>]
         \\
         \\Options:
         \\ --min-identity <minidentity>    Minimum identity threshold (e.g. 0.8).
