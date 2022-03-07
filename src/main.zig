@@ -318,3 +318,7 @@ pub fn main() !void {
 
     progress.finish();
 }
+
+test "specs" {
+    std.testing.refAllDecls(@This());
+}
