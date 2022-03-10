@@ -25,3 +25,4 @@ The binary will be located in `./zig-out/bin/nsearchz`
 ```bash
 ./nsearchz --query /opt/data/query.fa  --db /opt/data/db.fa --out /tmp/results.alnout --min-identity 0.75 --max-hits 1 --max-rejects 8 --strand plus
 ```
+
